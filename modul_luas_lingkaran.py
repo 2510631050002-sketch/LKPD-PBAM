@@ -16,6 +16,7 @@ st.set_page_config(
 )
 
 # ---------- Tema ----------
+
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
@@ -24,23 +25,40 @@ st.markdown("""
         font-family: 'Nunito', sans-serif;
     }
 
-    /* Tema terang sebagai default */
+    /* Latar utama */
     .stApp {
         background: #F7FAF5;
         color: #24352A;
     }
 
+    /* Header atas */
+    [data-testid="stHeader"] {
+        background: #F7FAF5 !important;
+    }
+
+    [data-testid="stToolbar"] {
+        background: transparent !important;
+    }
+
+    /* Tulisan umum */
+    .stApp p,
+    .stApp label,
+    .stApp .stMarkdown,
+    .stApp [data-testid="stCaptionContainer"] {
+        color: #24352A;
+    }
+
+    /* Kartu utama */
     .hero {
-        background: linear-gradient(120deg, #DDEFE0 0%, #F5F4D8 100%);
-        color: #214D35;
+        background: linear-gradient(120deg, #DDEFE0, #F5F4D8);
         padding: 1.6rem 1.8rem;
         border-radius: 22px;
         border: 1px solid #D0E3D1;
         margin-bottom: 1rem;
     }
 
-    .hero h1 { color: #214D35; margin-bottom: .3rem; }
-    .hero p { color: #355B43; font-size: 1.05rem; margin-bottom: 0; }
+    .hero h1 { color: #214D35 !important; }
+    .hero p { color: #355B43 !important; }
 
     .info-card {
         background: #FFFFFF;
@@ -53,7 +71,7 @@ st.markdown("""
 
     .formula {
         background: #E5F1E5;
-        color: #214D35;
+        color: #214D35 !important;
         padding: 1rem;
         border-radius: 14px;
         text-align: center;
@@ -62,7 +80,10 @@ st.markdown("""
         margin: .6rem 0;
     }
 
-    .small-note { color: #5A6D5D; font-size: .92rem; }
+    .small-note {
+        color: #4A5D4D !important;
+        font-size: .92rem;
+    }
 
     div.stButton > button {
         border-radius: 12px;
@@ -78,51 +99,45 @@ st.markdown("""
         border: 1px solid #E0E9DF;
     }
 
-    /* Tema gelap */
+    /* Penyesuaian jika perangkat menggunakan mode gelap */
     @media (prefers-color-scheme: dark) {
+        [data-testid="stHeader"] {
+            background: #F7FAF5 !important;
+        }
+
         .stApp {
-            background: #121A15;
-            color: #F1F5F0;
+            background: #F7FAF5 !important;
+            color: #24352A !important;
         }
 
-        .hero {
-            background: linear-gradient(120deg, #243D2D, #343B2B);
-            border-color: #49634D;
-            color: #F1F5F0;
+        .stApp p,
+        .stApp label,
+        .stApp .stMarkdown,
+        .stApp [data-testid="stCaptionContainer"] {
+            color: #24352A;
         }
 
-        .hero h1, .hero p {
-            color: #F1F5F0;
-        }
+        .hero h1 { color: #214D35 !important; }
+        .hero p { color: #355B43 !important; }
 
-        .info-card {
-            background: #202B23;
-            color: #F1F5F0;
-            border-color: #405344;
+        .info-card,
+        [data-testid="stMetric"] {
+            background: #FFFFFF !important;
+            color: #24352A !important;
         }
 
         .formula {
-            background: #294333;
-            color: #F1F5F0;
+            background: #E5F1E5 !important;
+            color: #214D35 !important;
         }
 
         .small-note {
-            color: #D0DDD1;
+            color: #4A5D4D !important;
         }
-
-        [data-testid="stMetric"] {
-            background: #202B23;
-            color: #F1F5F0;
-            border-color: #405344;
-        }
-    }
-
-    /* Menjaga teks pada kartu tetap terbaca */
-    .info-card b {
-        color: inherit;
     }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ---------- State ----------
 if "completed_sections" not in st.session_state:
