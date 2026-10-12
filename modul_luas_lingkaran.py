@@ -19,31 +19,107 @@ st.set_page_config(
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Nunito', sans-serif; }
-    .stApp { background: #F7FAF5; }
+
+    html, body, [class*="css"] {
+        font-family: 'Nunito', sans-serif;
+    }
+
+    /* Tema terang sebagai default */
+    .stApp {
+        background: #F7FAF5;
+        color: #24352A;
+    }
+
     .hero {
         background: linear-gradient(120deg, #DDEFE0 0%, #F5F4D8 100%);
-        padding: 1.6rem 1.8rem; border-radius: 22px;
-        border: 1px solid #D0E3D1; margin-bottom: 1rem;
+        color: #214D35;
+        padding: 1.6rem 1.8rem;
+        border-radius: 22px;
+        border: 1px solid #D0E3D1;
+        margin-bottom: 1rem;
     }
+
     .hero h1 { color: #214D35; margin-bottom: .3rem; }
     .hero p { color: #355B43; font-size: 1.05rem; margin-bottom: 0; }
+
     .info-card {
-        background: white; padding: 1rem 1.1rem; border-radius: 16px;
-        border: 1px solid #E0E9DF; margin: .4rem 0;
-    }
-    .formula {
-        background: #E5F1E5; color: #214D35; padding: 1rem;
-        border-radius: 14px; text-align: center; font-size: 1.35rem;
-        font-weight: 800; margin: .6rem 0;
-    }
-    .small-note { color: #5A6D5D; font-size: .92rem; }
-    div.stButton > button {
-        border-radius: 12px; font-weight: 700; border: 1px solid #B8D2BA;
-    }
-    [data-testid="stMetric"] {
-        background: white; padding: 1rem; border-radius: 14px;
+        background: #FFFFFF;
+        color: #24352A;
+        padding: 1rem 1.1rem;
+        border-radius: 16px;
         border: 1px solid #E0E9DF;
+        margin: .4rem 0;
+    }
+
+    .formula {
+        background: #E5F1E5;
+        color: #214D35;
+        padding: 1rem;
+        border-radius: 14px;
+        text-align: center;
+        font-size: 1.35rem;
+        font-weight: 800;
+        margin: .6rem 0;
+    }
+
+    .small-note { color: #5A6D5D; font-size: .92rem; }
+
+    div.stButton > button {
+        border-radius: 12px;
+        font-weight: 700;
+        border: 1px solid #B8D2BA;
+    }
+
+    [data-testid="stMetric"] {
+        background: #FFFFFF;
+        color: #24352A;
+        padding: 1rem;
+        border-radius: 14px;
+        border: 1px solid #E0E9DF;
+    }
+
+    /* Tema gelap */
+    @media (prefers-color-scheme: dark) {
+        .stApp {
+            background: #121A15;
+            color: #F1F5F0;
+        }
+
+        .hero {
+            background: linear-gradient(120deg, #243D2D, #343B2B);
+            border-color: #49634D;
+            color: #F1F5F0;
+        }
+
+        .hero h1, .hero p {
+            color: #F1F5F0;
+        }
+
+        .info-card {
+            background: #202B23;
+            color: #F1F5F0;
+            border-color: #405344;
+        }
+
+        .formula {
+            background: #294333;
+            color: #F1F5F0;
+        }
+
+        .small-note {
+            color: #D0DDD1;
+        }
+
+        [data-testid="stMetric"] {
+            background: #202B23;
+            color: #F1F5F0;
+            border-color: #405344;
+        }
+    }
+
+    /* Menjaga teks pada kartu tetap terbaca */
+    .info-card b {
+        color: inherit;
     }
 </style>
 """, unsafe_allow_html=True)
