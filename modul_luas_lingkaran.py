@@ -8,17 +8,15 @@ Struktur file:
   2. BANK MATERI & TOPIK     -> langkah materi + rekomendasi adaptif
   3. BANK SOAL               -> 10 soal pilihan ganda + 5 soal esai (mudah diedit)
   4. FUNGSI PENILAIAN        -> logika murni (tanpa Streamlit)
-  5. TAMPILAN (UI)           -> CSS, session state, halaman-halaman, router
+  5. TAMPILAN (UI)           -> CSS pink-biru-kuning, latar, musik/suara, halaman-halaman, router
 
 Data siswa hanya disimpan di st.session_state (sementara, selama sesi berjalan).
 """
 import html
-import io
 import base64
+import json
 import math
 import re
-import struct
-import wave
 from datetime import datetime
 
 import matplotlib
@@ -26,6 +24,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ============================================================
 # 1. KONFIGURASI GURU  (EDIT BAGIAN INI)
@@ -530,25 +529,52 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
 html, body, [class*="css"] { font-family: 'Nunito', sans-serif; }
-.stApp { background: #F7FAF5; color: #24352A; }
-[data-testid="stHeader"] { background: #F7FAF5; }
-.hero { background: linear-gradient(120deg, #DDEFE0, #FFF1C9); padding: 1.4rem 1.8rem;
-        border-radius: 24px; border: 1px solid #D0E3D1; margin-bottom: 1rem; }
-.hero h1 { color: #214D35 !important; margin-bottom: .2rem; }
-.hero p { color: #355B43 !important; font-size: 1.05rem; margin: 0; }
-.info-card { background: white; color: #24352A; padding: 1rem; border-radius: 18px;
-             border: 1px solid #E0E9DF; min-height: 110px; margin-bottom: .5rem; }
-.formula { background: #E5F1E5; color: #214D35 !important; padding: 1rem; border-radius: 15px;
-           text-align: center; font-size: 1.35rem; font-weight: 800; margin: .6rem 0; }
-.badge { display: inline-block; background: #FFF1C9; color: #5A4310; border: 1px solid #EBD592;
-         padding: .35rem .9rem; border-radius: 999px; font-weight: 700; font-size: .92rem; }
+.stApp { color: #2D3047; }
+[data-testid="stHeader"] { background: transparent; }
+.hero { background: linear-gradient(120deg, #FFC2DC, #FFF0A6 50%, #BFE6FB); padding: 1.4rem 1.8rem;
+        border-radius: 26px; border: 3px solid #FFFFFF; box-shadow: 0 6px 18px rgba(232,87,154,.18);
+        margin-bottom: 1rem; animation: slidein .6s ease-out; }
+.hero h1 { color: #C2185B !important; margin-bottom: .2rem; }
+.hero p { color: #2D3047 !important; font-size: 1.05rem; margin: 0; }
+.info-card { background: rgba(255,255,255,.88); color: #2D3047; padding: 1rem; border-radius: 20px;
+             border: 2px solid #FFD3E6; min-height: 110px; margin-bottom: .5rem;
+             box-shadow: 0 3px 10px rgba(46,155,230,.10); }
+.formula { background: #FFF1A8; color: #A3174F !important; padding: 1rem; border-radius: 18px; text-align: center;
+           font-size: 1.35rem; font-weight: 800; margin: .6rem 0; border: 2px dashed #F5A800; }
+.badge { display: inline-block; background: #D9F0FF; color: #134E7A; border: 2px solid #8CCBF3;
+         padding: .35rem .9rem; border-radius: 999px; font-weight: 800; font-size: .92rem; }
 .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0 .2rem; }
-.chip { background: white; color: #24352A; border: 1px solid #D0E3D1; border-radius: 12px;
-        padding: .25rem .6rem; font-weight: 700; font-size: .9rem; }
-.chip.cur { border: 2px solid #2F7047; background: #E5F1E5; }
-div.stButton > button { border-radius: 13px; font-weight: 800; border: 1px solid #B8D2BA; min-height: 2.8rem; }
-[data-testid="stMetric"] { background: white; padding: .8rem; border-radius: 14px; border: 1px solid #E0E9DF; }
-.small-note { color: #4A5D4D; font-size: .9rem; }
+.chip { background: white; color: #2D3047; border: 2px solid #CBE8FA; border-radius: 12px;
+        padding: .25rem .6rem; font-weight: 800; font-size: .9rem; }
+.chip.cur { border: 3px solid #E8579A; background: #FFE3F0; }
+div.stButton > button, div.stLinkButton > a { border-radius: 14px; font-weight: 800; border: 2px solid #FFB3D1;
+        min-height: 2.8rem; background: rgba(255,255,255,.92); color: #2D3047; transition: transform .15s; }
+div.stButton > button:hover { transform: translateY(-2px) scale(1.02); border-color: #E8579A; color: #C2185B; }
+button[kind="primary"], button[data-testid="stBaseButton-primary"], button[data-testid="stBaseButton-primaryFormSubmit"] {
+        background: linear-gradient(135deg, #FF7FB0, #FFB84D) !important; color: white !important; border: none !important; }
+[data-testid="stMetric"] { background: rgba(255,255,255,.9); padding: .8rem; border-radius: 16px;
+        border: 2px solid #CBE8FA; }
+.small-note { color: #4A5075; font-size: .9rem; }
+/* ---- umpan balik + animasi ---- */
+.fb { padding: .9rem 1.1rem; border-radius: 20px; font-weight: 800; font-size: 1.2rem; margin: .5rem 0; }
+.fb-ok { background: #FFF1A8; color: #7A4B00; border: 3px solid #FFC933;
+         animation: pop .6s cubic-bezier(.2,1.6,.4,1); }
+.fb-bad { background: #FFE0EE; color: #8A2252; border: 3px solid #FF8FB8; animation: shake .6s; }
+.fx { position: fixed; inset: 0; pointer-events: none; z-index: 9999; overflow: hidden; }
+.fx span { position: absolute; font-size: 2rem; opacity: 0; }
+.fx.ok span { top: -8vh; animation: fall 2.8s ease-in forwards; }
+.fx.bad span { bottom: -8vh; animation: rise 2.4s ease-out forwards; }
+@keyframes fall { 0% {transform: translateY(0) rotate(0); opacity: 1;} 85% {opacity: 1;}
+                  100% {transform: translateY(112vh) rotate(360deg); opacity: 0;} }
+@keyframes rise { 0% {transform: translateY(0); opacity: 0;} 15% {opacity: 1;}
+                  100% {transform: translateY(-65vh); opacity: 0;} }
+@keyframes pop { 0% {transform: scale(.5); opacity: 0;} 100% {transform: scale(1); opacity: 1;} }
+@keyframes shake { 0%,100% {transform: translateX(0);} 20% {transform: translateX(-10px);}
+                   40% {transform: translateX(10px);} 60% {transform: translateX(-6px);} 80% {transform: translateX(6px);} }
+@keyframes slidein { 0% {transform: translateY(-14px); opacity: 0;} 100% {transform: translateY(0); opacity: 1;} }
+@keyframes bgshift { 0% {background-position: 0 0, 0 0, 0 0, 0% 50%;} 50% {background-position: 0 0, 0 0, 0 0, 100% 50%;}
+                     100% {background-position: 0 0, 0 0, 0 0, 0% 50%;} }
+@media (prefers-reduced-motion: reduce) { .fx { display: none; } .fb, .hero, .stApp { animation: none !important; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -567,6 +593,64 @@ READING_SECTIONS = ["Capaian Pembelajaran", "Petunjuk Penggunaan LKPD", "Pengant
                     "Materi Inti", "Refleksi Pembelajaran"]
 SECTION_OF = {"Latihan PG": "Latihan Soal", "Hasil PG": "Latihan Soal",
               "Latihan Esai": "Latihan Soal", "Hasil Esai": "Latihan Soal"}
+
+# ---------- LATAR BELAKANG (pink, biru, kuning) ----------
+BGS = {
+    "pelangi": "linear-gradient(135deg,#FFD0E5,#FFF3B0,#C9E9FF,#FFD0E5)",
+    "permen":  "linear-gradient(135deg,#FFE0EE,#FFC4DD,#E2F3FF,#FFE0EE)",
+    "langit":  "linear-gradient(135deg,#CFEBFF,#EAF7FF,#FFF6C9,#CFEBFF)",
+    "mentega": "linear-gradient(135deg,#FFF1A8,#FFF9DB,#FFDFEC,#FFF1A8)",
+    "senja":   "linear-gradient(135deg,#FFBFD8,#FFE6A3,#BEE5FB,#FFBFD8)",
+    "laut":    "linear-gradient(135deg,#B7E1FA,#E2F5FF,#FFD9EA,#B7E1FA)",
+}
+BG_LABELS = {"🌈 Pelangi": "pelangi", "🍬 Permen pink": "permen", "☁️ Langit biru": "langit",
+             "🧈 Mentega kuning": "mentega", "🌅 Senja": "senja", "🌊 Laut": "laut"}
+AUTO_LABEL = "🎲 Otomatis (berganti-ganti)"
+AUTO_BG = {"Cover": "senja", "Identitas": "mentega", "Menu": "langit", "Capaian Pembelajaran": "permen",
+           "Petunjuk Penggunaan LKPD": "laut", "Pengantar Materi": "mentega", "Latihan Soal": "pelangi",
+           "Hasil PG": "senja", "Hasil Esai": "senja", "Progres dan Hasil Belajar": "langit",
+           "Refleksi Pembelajaran": "permen"}
+ROTASI_BG = ["laut", "mentega", "permen", "langit", "pelangi", "senja", "mentega"]
+
+# ---------- MESIN SUARA (WebAudio di browser; tanpa file audio, tanpa internet) ----------
+AUDIO_LIB = r"""
+(function(){
+if(window.__lk){return;}
+var AC=window.AudioContext||window.webkitAudioContext;
+if(!AC){window.__lk={update:function(){}};return;}
+var A=new AC();
+var master=A.createGain();master.gain.value=0.5;master.connect(A.destination);
+var mus=A.createGain();mus.gain.value=0.35;mus.connect(master);
+var S={music:false,sfx:true,step:0,next:0,timer:null};
+function tone(f,t,d,type,g,dest){var o=A.createOscillator(),e=A.createGain();o.type=type;o.frequency.setValueAtTime(f,t);
+ e.gain.setValueAtTime(0.0001,t);e.gain.exponentialRampToValueAtTime(g,t+0.02);e.gain.exponentialRampToValueAtTime(0.0001,t+d);
+ o.connect(e);e.connect(dest||master);o.start(t);o.stop(t+d+0.05);}
+var MEL=[659.25,783.99,880,783.99,659.25,587.33,523.25,0,587.33,659.25,783.99,659.25,587.33,523.25,440,0];
+var BASS=[130.81,110,87.31,98];
+var STEP=0.28;
+function sched(){while(S.next<A.currentTime+0.3){var i=S.step%16;
+ if(MEL[i]){tone(MEL[i],S.next,STEP*1.5,'triangle',0.5,mus);}
+ if(i%4===0){tone(BASS[i/4],S.next,STEP*3.6,'sine',0.6,mus);}
+ S.next+=STEP;S.step++;}}
+function startMusic(){if(S.timer||!S.music||A.state!=='running'){return;}S.next=A.currentTime+0.05;S.timer=setInterval(sched,100);}
+function stopMusic(){if(S.timer){clearInterval(S.timer);S.timer=null;}}
+function unlock(){if(A.state!=='running'){A.resume().then(function(){startMusic();}).catch(function(){});}else{startMusic();}}
+['pointerdown','keydown','touchstart'].forEach(function(ev){document.addEventListener(ev,unlock,{passive:true});});
+function play(n){if(!S.sfx){return;}
+ var go=function(){var t=A.currentTime+0.02;
+  if(n==='nav'){tone(660,t,0.12,'sine',0.5);tone(880,t+0.07,0.14,'sine',0.5);}
+  else if(n==='ok'){[523.25,659.25,783.99,1046.5].forEach(function(f,k){tone(f,t+k*0.1,0.25,'triangle',0.6);});}
+  else if(n==='bad'){tone(246.94,t,0.25,'sawtooth',0.25);tone(185,t+0.2,0.4,'sawtooth',0.25);}
+  else if(n==='win'){[523.25,659.25,783.99,659.25,783.99,1046.5,1318.5].forEach(function(f,k){tone(f,t+k*0.12,0.3,'triangle',0.6);});}
+ };
+ if(A.state==='running'){go();}else{A.resume().then(go).catch(function(){});}}
+window.__lk={update:function(c){S.sfx=!!c.sfx;S.music=!!c.music;master.gain.value=Math.max(0,Math.min(1,c.vol));
+ if(S.music){unlock();}else{stopMusic();}
+ if(c.play){play(c.play);}}};
+})();
+"""
+AUDIO_BOOT = ("(function(){try{var P=window.parent;if(!P.__lk){var s=P.document.createElement('script');"
+              "s.id='lk-audio';s.textContent=LIB;P.document.head.appendChild(s);}P.__lk.update(CFG);}catch(e){}})();")
 
 
 # ---------- SESSION STATE ----------
@@ -596,14 +680,25 @@ _DEFAULTS = {
     "reflection": lambda: {},
     "saved": lambda: {},              # draf isian agar tidak hilang saat pindah halaman
     "teacher_scores": lambda: {},
-    "audio_on": lambda: False,
+    "music_on": lambda: True,
+    "sfx_on": lambda: True,
+    "vol": lambda: 50,
+    "bg_choice": lambda: AUTO_LABEL,
+    "sound_queue": lambda: "",
+    "snd_n": lambda: 0,
 }
 for _k, _f in _DEFAULTS.items():
     if _k not in st.session_state:
         st.session_state[_k] = _f()
 
 
+def queue_sound(name):
+    """Menjadwalkan efek suara ('nav', 'ok', 'bad', 'win'); diputar sekali di akhir proses render."""
+    st.session_state.sound_queue = name
+
+
 def go(screen):
+    queue_sound("nav")
     st.session_state.screen = screen
     st.rerun()
 
@@ -677,18 +772,18 @@ def nav_buttons(back_label=None, back_screen=None):
 def draw_circle(radius=7, show_r=True, show_d=True, size=(4.4, 3.2)):
     """Lingkaran dengan titik pusat O. show_r / show_d mengatur label yang ditampilkan."""
     fig, ax = plt.subplots(figsize=size)
-    ax.add_patch(Circle((0, 0), radius, facecolor="#DDEFE0", edgecolor="#2F7047", linewidth=2.5, alpha=.95))
-    ax.scatter([0], [0], color="#2F7047", zorder=3)
-    ax.text(0, .45 * radius / 7 + .1, "O", ha="center", color="#2F7047", fontsize=10, weight="bold")
+    ax.add_patch(Circle((0, 0), radius, facecolor="#FFD6E8", edgecolor="#E8579A", linewidth=2.5, alpha=.95))
+    ax.scatter([0], [0], color="#E8579A", zorder=3)
+    ax.text(0, .45 * radius / 7 + .1, "O", ha="center", color="#E8579A", fontsize=10, weight="bold")
     if show_r:
-        ax.plot([0, radius], [0, 0], color="#D18B2C", linewidth=2.7)
-        ax.scatter([radius], [0], color="#D18B2C", zorder=3)
+        ax.plot([0, radius], [0, 0], color="#F5A800", linewidth=2.7)
+        ax.scatter([radius], [0], color="#F5A800", zorder=3)
         ax.text(radius / 2, -.55 * radius / 7 - .2, f"r = {radius:g}", ha="center",
-                color="#80531A", fontsize=11, weight="bold")
+                color="#A86A00", fontsize=11, weight="bold")
     if show_d:
-        ax.plot([-radius, radius], [0, 0], color="#547BBA", linewidth=1.8, linestyle="--")
+        ax.plot([-radius, radius], [0, 0], color="#2E9BE6", linewidth=1.8, linestyle="--")
         ax.text(0, -radius * .35 - .6, f"d = {2 * radius:g}", ha="center",
-                color="#34588A", fontsize=10, weight="bold")
+                color="#1F6FB0", fontsize=10, weight="bold")
     ax.set_xlim(-radius - 1.5, radius + 1.5)
     ax.set_ylim(-radius - 1.5, radius + 1.5)
     ax.set_aspect("equal")
@@ -704,19 +799,60 @@ def fmt_num(value):
     return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
-@st.cache_data
-def make_tone(correct=True):
-    """Bunyi pendek opsional (siswa perlu menekan play karena kebijakan browser)."""
-    rate, dur, freq = 22050, 0.24, (880 if correct else 220)
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(rate)
-        for i in range(int(rate * dur)):
-            fade = min(1, i / 300, (rate * dur - i) / 500)
-            wav.writeframesraw(struct.pack("<h", int(11000 * max(0, fade) * math.sin(2 * math.pi * freq * i / rate))))
-    return buf.getvalue()
+def fx_banner(kind, text):
+    """Banner umpan balik beranimasi: 'ok' = konfeti jatuh + pop, 'bad' = goyang + emoji naik."""
+    if kind == "ok":
+        emo, lefts = ["🎉", "⭐", "✨", "🌟", "🎈", "💖", "💛", "💙"], [6, 18, 30, 42, 54, 66, 78, 90]
+    else:
+        emo, lefts = ["🤔", "💭", "📚", "💡"], [15, 38, 62, 85]
+    spans = "".join(f'<span style="left:{lefts[i]}%;animation-delay:{i * 0.12:.2f}s">{emo[i % len(emo)]}</span>'
+                    for i in range(len(lefts)))
+    st.markdown(f'<div class="fx {kind}">{spans}</div><div class="fb fb-{kind}">{text}</div>', unsafe_allow_html=True)
+
+
+def pick_bg(screen):
+    ch = st.session_state.bg_choice
+    if ch in BG_LABELS:
+        return BG_LABELS[ch]
+    if screen == "Materi Inti":
+        return ROTASI_BG[st.session_state.materi_step % len(ROTASI_BG)]
+    if screen == "Latihan PG":
+        return ROTASI_BG[(st.session_state.mc["idx"] + 1) % len(ROTASI_BG)]
+    if screen == "Latihan Esai":
+        return ROTASI_BG[(st.session_state.essay["idx"] + 3) % len(ROTASI_BG)]
+    return AUTO_BG.get(screen, "pelangi")
+
+
+def bg_css(screen):
+    grad = BGS[pick_bg(screen)]
+    dots = ("radial-gradient(circle at 8% 14%, rgba(255,255,255,.55) 0 70px, transparent 71px),"
+            "radial-gradient(circle at 93% 28%, rgba(255,255,255,.45) 0 110px, transparent 111px),"
+            "radial-gradient(circle at 14% 92%, rgba(255,255,255,.5) 0 90px, transparent 91px),")
+    return (f"<style>.stApp{{background-image:{dots}{grad};background-size:auto,auto,auto,300% 300%;"
+            f"background-attachment:fixed;animation:bgshift 22s ease infinite;}}</style>")
+
+
+def settings_bar():
+    with st.expander("🎛️ Pengaturan musik, suara, dan latar belakang"):
+        c1, c2, c3, c4 = st.columns(4)
+        c1.checkbox("🎵 Musik latar", key="music_on")
+        c2.checkbox("🔊 Efek suara", key="sfx_on")
+        c3.slider("Volume", 0, 100, key="vol")
+        c4.selectbox("🎨 Latar belakang", [AUTO_LABEL] + list(BG_LABELS), key="bg_choice")
+        st.caption("Musik dan suara baru bisa berbunyi setelah kamu menekan sesuatu di halaman (aturan browser).")
+
+
+def audio_engine():
+    """Mengirim pengaturan + efek suara yang menunggu ke mesin suara di browser."""
+    sound = st.session_state.sound_queue
+    st.session_state.sound_queue = ""
+    if sound:
+        st.session_state.snd_n += 1
+    cfg = {"music": bool(st.session_state.music_on), "sfx": bool(st.session_state.sfx_on),
+           "vol": st.session_state.vol / 100, "play": sound}
+    page = ("<!--" + str(st.session_state.snd_n) + "--><script>var LIB=" + json.dumps(AUDIO_LIB).replace("</", "<\\/")
+            + ";var CFG=" + json.dumps(cfg) + ";" + AUDIO_BOOT + "</script>")
+    components.html(page, height=0)
 
 
 def video_block(url, label="video pembelajaran"):
@@ -777,13 +913,13 @@ def render_recommendations(items, prefix):
 # ============================================================
 def page_cover():
     svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="190" height="190">'
-           '<circle cx="100" cy="100" r="82" fill="#DDEFE0" stroke="#2F7047" stroke-width="6"/>'
-           '<line x1="18" y1="100" x2="182" y2="100" stroke="#547BBA" stroke-width="3" stroke-dasharray="7 6"/>'
-           '<line x1="100" y1="100" x2="182" y2="100" stroke="#D18B2C" stroke-width="6" stroke-linecap="round"/>'
-           '<circle cx="100" cy="100" r="7" fill="#2F7047"/><circle cx="182" cy="100" r="6" fill="#D18B2C"/>'
-           '<text x="136" y="88" font-size="20" font-weight="800" fill="#80531A" font-family="sans-serif">r</text>'
-           '<text x="52" y="128" font-size="20" font-weight="800" fill="#34588A" font-family="sans-serif">d</text>'
-           '<text x="94" y="124" font-size="14" font-weight="800" fill="#2F7047" font-family="sans-serif">O</text></svg>')
+           '<circle cx="100" cy="100" r="82" fill="#FFD6E8" stroke="#E8579A" stroke-width="6"/>'
+           '<line x1="18" y1="100" x2="182" y2="100" stroke="#2E9BE6" stroke-width="3" stroke-dasharray="7 6"/>'
+           '<line x1="100" y1="100" x2="182" y2="100" stroke="#F5A800" stroke-width="6" stroke-linecap="round"/>'
+           '<circle cx="100" cy="100" r="7" fill="#E8579A"/><circle cx="182" cy="100" r="6" fill="#F5A800"/>'
+           '<text x="136" y="88" font-size="20" font-weight="800" fill="#A86A00" font-family="sans-serif">r</text>'
+           '<text x="52" y="128" font-size="20" font-weight="800" fill="#1F6FB0" font-family="sans-serif">d</text>'
+           '<text x="94" y="124" font-size="14" font-weight="800" fill="#E8579A" font-family="sans-serif">O</text></svg>')
     b64 = base64.b64encode(svg.encode()).decode()
     st.markdown(f"<div style='text-align:center'><img src='data:image/svg+xml;base64,{b64}' width='190'></div>",
                 unsafe_allow_html=True)
@@ -881,6 +1017,7 @@ def page_petunjuk():
         "Baca umpan balik dan pembahasan. Jika salah, kamu boleh Coba Lagi atau Lanjut.",
         "Pantau kemajuanmu di Progres dan Hasil Belajar, lalu pelajari lagi bagian yang disarankan.",
         "Isi Refleksi Pembelajaran setelah selesai.",
+        "Buka Pengaturan di bagian atas untuk menyalakan atau mematikan musik dan efek suara, mengatur volume, dan mengganti latar belakang.",
     ]
     for n, desc in enumerate(steps, 1):
         st.markdown(f'<div class="info-card" style="min-height:0"><b>{n}. {desc}</b></div>', unsafe_allow_html=True)
@@ -1002,11 +1139,13 @@ def page_materi():
     c1, c2, c3 = st.columns([1, 1, 1])
     if step > 0 and c1.button("⬅️ Sebelumnya", key="mat_prev", use_container_width=True):
         st.session_state.materi_step -= 1
+        queue_sound("nav")
         st.rerun()
     if c2.button("✏️ Ke Latihan Soal", key="mat_latihan", use_container_width=True):
         go("Latihan Soal")
     if step < n - 1 and c3.button("Berikutnya ➡️", key="mat_next", type="primary", use_container_width=True):
         st.session_state.materi_step += 1
+        queue_sound("nav")
         st.rerun()
     nav_buttons()
 
@@ -1043,7 +1182,6 @@ def page_latihan():
             lbl = "▶️ Mulai Esai" if ess["submitted"] == 0 else "▶️ Lanjutkan Esai"
             if st.button(lbl, key="hub_es", type="primary", use_container_width=True):
                 go("Latihan Esai")
-    st.checkbox("🔊 Tampilkan pemutar bunyi pada umpan balik (pilihan Pilihan Ganda)", key="audio_on")
     st.caption("Kedua latihan punya progres sendiri. Jawabanmu tetap tersimpan selama sesi belajar ini berjalan.")
     nav_buttons()
 
@@ -1063,23 +1201,21 @@ def mc_feedback(q, stq):
     att = stq["attempts"][-1]
     ans = q["answer"]
     if att["correct"]:
-        st.success("🎉 Hebat! Jawabanmu benar!")
+        fx_banner("ok", "🎉 Hebat! Jawabanmu benar!")
         st.markdown(f"**Mengapa benar?** {q['explanation']}")
         if len(stq["attempts"]) > 1:
             st.info("Soal ini benar setelah mencoba lagi. Nilai utama tetap dihitung dari percobaan pertama, "
                     "tetapi kamu sudah berhasil memahaminya!")
     else:
-        st.error("Belum tepat, yuk pelajari lagi!")
+        fx_banner("bad", "🤔 Belum tepat, yuk pelajari lagi!")
         mis = q.get("miskonsepsi", {}).get(att["choice"])
         if mis:
             st.markdown(f"**Tentang pilihanmu ({LETTERS[att['choice']]}):** {mis}")
         st.markdown(f"**Jawaban yang benar:** {LETTERS[ans]}. {q['options'][ans]}")
         st.markdown(f"**Penjelasan konsep:** {q['explanation']}")
         st.markdown("**Langkah penyelesaian:**")
-        for s in q["steps"]:
-            st.markdown(f"- {s}")
-    if st.session_state.audio_on:
-        st.audio(make_tone(att["correct"]), format="audio/wav")
+        for s_ in q["steps"]:
+            st.markdown(f"- {s_}")
 
 
 def page_mc_play():
@@ -1127,6 +1263,7 @@ def page_mc_play():
             else:
                 stq["attempts"].append({"choice": choice, "correct": choice == q["answer"], "waktu": now()})
                 stq["locked"] = True
+                queue_sound("ok" if choice == q["answer"] else "bad")
                 st.rerun()
     else:
         mc_feedback(q, stq)
@@ -1171,6 +1308,7 @@ def page_mc_hasil():
         return
     if not mc["celebrated"]:
         mc["celebrated"] = True
+        queue_sound("win" if s["nilai"] >= KKM else "nav")
         if s["nilai"] >= KKM:
             st.balloons()
     stu = st.session_state.student
@@ -1248,6 +1386,10 @@ def page_mc_hasil():
 # ============================================================
 def essay_feedback(q, stq):
     sub = stq["subs"][-1]
+    if sub["score"] >= KKM:
+        fx_banner("ok", "🎉 Kerja bagus! Jawabanmu sudah kuat.")
+    else:
+        fx_banner("bad", "💪 Hampir! Yuk perbaiki bagian yang ditandai 🔎.")
     st.markdown(f"#### Hasil pemeriksaan: **{sub['score']}/100**")
     st.progress(sub["score"] / 100)
     for ch in sub["checks"]:
@@ -1313,6 +1455,7 @@ def page_essay_play():
                 res = grade_essay(q, steps, final, concl)
                 stq["subs"].append({"steps": steps, "final": final, "concl": concl, "waktu": now(), **res})
                 stq["locked"] = True
+                queue_sound("ok" if res["score"] >= KKM else "bad")
                 st.rerun()
     else:
         essay_feedback(q, stq)
@@ -1361,6 +1504,7 @@ def page_essay_hasil():
         return
     if not es["celebrated"]:
         es["celebrated"] = True
+        queue_sound("win" if s["nilai_pertama"] >= KKM else "nav")
         if s["nilai_pertama"] >= KKM:
             st.balloons()
     stu = st.session_state.student
@@ -1568,8 +1712,11 @@ if _screen not in PAGES:
 if _screen not in ("Cover", "Identitas") and not st.session_state.student:
     go("Identitas")
 st.session_state.visited.add(SECTION_OF.get(_screen, _screen))
+st.markdown(bg_css(_screen), unsafe_allow_html=True)
+settings_bar()
 PAGES[_screen]()
 
 st.divider()
 st.caption(f"Modul pembelajaran interaktif • Luas Lingkaran • Kelas VI SD/MI • {NAMA_SEKOLAH}")
 st.caption("Data identitas, jawaban, progres, dan refleksi disimpan sementara selama sesi aplikasi berjalan.")
+audio_engine()
