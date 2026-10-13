@@ -1,561 +1,1575 @@
+# -*- coding: utf-8 -*-
+"""
+MODUL INTERAKTIF LUAS LINGKARAN - KELAS VI SD/MI
+Jalankan:  streamlit run app.py
 
-import streamlit as st
+Struktur file:
+  1. KONFIGURASI GURU        -> identitas sekolah, KKM, tautan video, PIN guru
+  2. BANK MATERI & TOPIK     -> langkah materi + rekomendasi adaptif
+  3. BANK SOAL               -> 10 soal pilihan ganda + 5 soal esai (mudah diedit)
+  4. FUNGSI PENILAIAN        -> logika murni (tanpa Streamlit)
+  5. TAMPILAN (UI)           -> CSS, session state, halaman-halaman, router
+
+Data siswa hanya disimpan di st.session_state (sementara, selama sesi berjalan).
+"""
+import html
+import io
+import base64
 import math
+import re
+import struct
+import wave
+from datetime import datetime
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
+import streamlit as st
 
-# =========================
-# KONFIGURASI HALAMAN
-# =========================
+# ============================================================
+# 1. KONFIGURASI GURU  (EDIT BAGIAN INI)
+# ============================================================
+NAMA_SEKOLAH = "[ISI: Nama Sekolah / Madrasah]"      # TODO GURU
+NAMA_GURU = "[ISI: Nama Guru]"                       # TODO GURU
+KKM = 75                                             # TODO GURU: batas ketuntasan (0-100)
+GURU_PIN = "guru123"                                 # TODO GURU: ganti PIN panel guru
+
+# Tautan video. Kosongkan ("") jika belum ada; aplikasi akan menampilkan placeholder.
+# Contoh format: "https://www.youtube.com/watch?v=XXXXXXXXXXX"
+VIDEO_UTAMA = ""                                     # TODO GURU: video materi inti
+VIDEO_PENCARIAN = "https://www.youtube.com/results?search_query=luas+lingkaran+kelas+6+SD"
+
+# TODO GURU: ganti dengan rumusan CP/tujuan resmi dari LKPD / kurikulum sekolah.
+CAPAIAN_PEMBELAJARAN = [
+    "Mengenali jari-jari dan diameter lingkaran.",
+    "Menjelaskan hubungan diameter dan jari-jari.",
+    "Memilih nilai π yang sesuai untuk perhitungan.",
+    "Menghitung luas lingkaran jika diketahui jari-jari atau diameter.",
+    "Menyelesaikan masalah luas lingkaran dalam kehidupan sehari-hari.",
+    "Menjelaskan langkah penyelesaian dengan bahasamu sendiri.",
+]
+
+LETTERS = "ABCD"
+
+# ============================================================
+# 2. BANK MATERI & TOPIK REKOMENDASI
+# ============================================================
+# Urutan langkah Materi Inti (indeks dipakai oleh tombol rekomendasi).
+MATERI_STEPS = [
+    ("⭕", "Mengenal lingkaran"),            # 0
+    ("↔️", "Jari-jari dan diameter"),         # 1
+    ("📐", "Rumus luas lingkaran"),          # 2
+    ("🔢", "Nilai π (pi)"),                  # 3
+    ("🧮", "Contoh soal dan penyelesaian"),  # 4
+    ("🎛️", "Coba sendiri: alat hitung"),     # 5
+    ("🎬", "Video pembelajaran"),            # 6
+]
+
+# Setiap topik terhubung ke satu langkah materi. Isi "video" dengan tautan jika ada.
+TOPICS = {
+    "unsur": {
+        "label": "Titik pusat, jari-jari, dan diameter",
+        "step": 0, "video": "",               # TODO GURU: tautan video topik ini
+        "tip": "Ulangi bagian unsur-unsur lingkaran: titik pusat, jari-jari, dan diameter.",
+    },
+    "hubungan": {
+        "label": "Hubungan jari-jari dan diameter",
+        "step": 1, "video": "",               # TODO GURU
+        "tip": "Ingat: d = 2 × r dan r = d ÷ 2. Cari jari-jari lebih dulu sebelum memakai rumus luas.",
+    },
+    "rumus": {
+        "label": "Rumus luas lingkaran",
+        "step": 2, "video": "",               # TODO GURU
+        "tip": "Luas lingkaran: L = π × r × r. Jangan tertukar dengan rumus keliling (2 × π × r).",
+    },
+    "pi": {
+        "label": "Memilih nilai π",
+        "step": 3, "video": "",               # TODO GURU
+        "tip": "Pakai π = 22/7 jika r atau d kelipatan 7; pakai π = 3,14 untuk ukuran lainnya.",
+    },
+    "hitung": {
+        "label": "Contoh perhitungan luas lingkaran",
+        "step": 4, "video": "",               # TODO GURU
+        "tip": "Pelajari contoh penyelesaian langkah demi langkah, lalu perhatikan perkaliannya.",
+    },
+    "cerita": {
+        "label": "Luas lingkaran dalam soal cerita",
+        "step": 4, "video": "",               # TODO GURU
+        "tip": "Tulis diketahui dan ditanya, ubah diameter ke jari-jari bila perlu, lalu hitung luasnya.",
+    },
+}
+
+# ============================================================
+# 3. BANK SOAL
+# ============================================================
+# ---- 3a. PILIHAN GANDA (10 soal) ----------------------------
+# answer      = indeks jawaban benar (0=A, 1=B, 2=C, 3=D)
+# miskonsepsi = {indeks_opsi_salah: penjelasan singkat} (opsional)
+# visual      = gambar lingkaran yang HANYA menampilkan data yang diketahui soal
+# CATATAN GURU: soal 1-6 berasal dari kode asli (soal tipe isian/ganda kompleks diubah
+# menjadi 4 opsi A-D). Soal 7-10 adalah DRAF BARU buatan penyusun aplikasi -> ganti/periksa.
+MC_QUESTIONS = [
+    {   # kode asli (q1)
+        "id": "mc1", "topic": "hitung",
+        "question": "Sebuah piring berbentuk lingkaran memiliki jari-jari 7 cm. Berapa luas permukaannya?",
+        "options": ["44 cm²", "154 cm²", "308 cm²", "49 cm²"],
+        "answer": 1,
+        "explanation": "Luas lingkaran dihitung dengan L = π × r × r. Karena r = 7 (kelipatan 7), gunakan π = 22/7.",
+        "steps": ["Diketahui: r = 7 cm.", "L = π × r × r", "L = 22/7 × 7 × 7", "L = 22 × 7 = 154 cm²"],
+        "miskonsepsi": {
+            0: "44 cm² adalah hasil keliling (2 × 22/7 × 7). Soal ini menanyakan luas.",
+            2: "308 muncul jika hasil luas dikalikan 2. Rumus luas tidak memakai angka 2.",
+            3: "49 hanya r × r. Kamu belum mengalikan dengan π.",
+        },
+        "visual": {"radius": 7, "show_r": True, "show_d": False},
+    },
+    {   # kode asli (q2)
+        "id": "mc2", "topic": "rumus",
+        "question": "Rumus yang tepat untuk menghitung luas lingkaran adalah …",
+        "options": ["L = π × r", "L = 2 × π × r", "L = π × r × r", "L = π × d"],
+        "answer": 2,
+        "explanation": "Luas lingkaran dihitung dengan L = π × r², yaitu π dikali jari-jari dikali jari-jari.",
+        "steps": ["Luas = π × r × r.", "Rumus 2 × π × r adalah rumus keliling, bukan luas."],
+        "miskonsepsi": {
+            0: "π × r hanya mengalikan satu kali jari-jari. Luas membutuhkan r × r.",
+            1: "2 × π × r adalah rumus keliling lingkaran.",
+            3: "π × d adalah rumus keliling juga (d = 2 × r).",
+        },
+    },
+    {   # kode asli (q3, tipe 'multi' diubah menjadi ganda 4 opsi)
+        "id": "mc3", "topic": "pi",
+        "question": (
+            "Perhatikan pernyataan tentang pemilihan nilai π berikut.\n\n"
+            "(1) π = 22/7 dapat digunakan jika jari-jari atau diameter merupakan kelipatan 7.\n\n"
+            "(2) π = 3,14 dapat digunakan untuk ukuran yang bukan kelipatan 7.\n\n"
+            "(3) Luas lingkaran selalu sama dengan 2 × π × r.\n\n"
+            "(4) Jika diameter diketahui, jari-jari diperoleh dengan membagi diameter dengan 2.\n\n"
+            "Pernyataan yang benar adalah …"
+        ),
+        "options": ["(1), (2), dan (3)", "(1), (2), dan (4)", "(2), (3), dan (4)", "(1), (3), dan (4)"],
+        "answer": 1,
+        "explanation": ("Pernyataan (1), (2), dan (4) benar. Pernyataan (3) adalah rumus keliling, bukan rumus luas. "
+                        "Dalam perhitungan sekolah, π = 22/7 praktis untuk ukuran kelipatan 7 dan π = 3,14 untuk ukuran lainnya."),
+        "steps": ["Periksa tiap pernyataan satu per satu.", "(3) salah karena 2 × π × r adalah keliling.",
+                  "Jadi yang benar: (1), (2), dan (4)."],
+        "miskonsepsi": {
+            0: "Pernyataan (3) salah: 2 × π × r adalah rumus keliling.",
+            2: "Pernyataan (1) sebenarnya benar, dan pernyataan (3) salah.",
+            3: "Pernyataan (2) benar dan pernyataan (3) salah.",
+        },
+    },
+    {   # kode asli (q4)
+        "id": "mc4", "topic": "hubungan",
+        "question": "Sebuah pizza memiliki diameter 20 cm. Berapa luas pizza tersebut?",
+        "options": ["314 cm²", "1.256 cm²", "62,8 cm²", "100 cm²"],
+        "answer": 0,
+        "explanation": "Diameter harus diubah dulu menjadi jari-jari: r = 20 ÷ 2 = 10 cm. Karena 10 bukan kelipatan 7, gunakan π = 3,14.",
+        "steps": ["Diketahui: d = 20 cm, sehingga r = 20 ÷ 2 = 10 cm.", "L = 3,14 × 10 × 10", "L = 314 cm²"],
+        "miskonsepsi": {
+            1: "1.256 muncul jika diameter (20) langsung dipakai sebagai jari-jari. Bagi 2 dulu!",
+            2: "62,8 adalah keliling (3,14 × 20). Soal ini menanyakan luas.",
+            3: "100 hanya r × r. Kamu belum mengalikan dengan π.",
+        },
+        "visual": {"radius": 10, "show_r": False, "show_d": True},
+    },
+    {   # kode asli (q5)  -- TODO GURU: kalimat asli "Tutup taman" mungkin salah ketik (Tugu? Tanah?). Dipertahankan apa adanya.
+        "id": "mc5", "topic": "hubungan",
+        "question": "Tutup taman berbentuk lingkaran memiliki diameter 28 m. Berapakah jari-jarinya?",
+        "options": ["7 m", "14 m", "28 m", "56 m"],
+        "answer": 1,
+        "explanation": "Jari-jari adalah setengah diameter. Jadi r = 28 ÷ 2 = 14 m.",
+        "steps": ["Diketahui: d = 28 m.", "r = d ÷ 2", "r = 28 ÷ 2 = 14 m"],
+        "miskonsepsi": {
+            0: "7 m adalah seperempat diameter. Jari-jari adalah setengah diameter.",
+            2: "28 m adalah diameter itu sendiri, bukan jari-jari.",
+            3: "56 m adalah dua kali diameter. Seharusnya dibagi 2.",
+        },
+        "visual": {"radius": 14, "show_r": False, "show_d": True},
+    },
+    {   # kode asli (q6)
+        "id": "mc6", "topic": "cerita",
+        "question": "Sebuah taman bundar memiliki jari-jari 14 m. Berapa luas taman tersebut?",
+        "options": ["88 m²", "616 m²", "1.232 m²", "196 m²"],
+        "answer": 1,
+        "explanation": "r = 14 m (kelipatan 7), maka gunakan π = 22/7.",
+        "steps": ["Diketahui: r = 14 m.", "L = 22/7 × 14 × 14", "L = 22 × 2 × 14 = 616 m²"],
+        "miskonsepsi": {
+            0: "88 m² adalah keliling (2 × 22/7 × 14). Soal ini menanyakan luas.",
+            2: "1.232 adalah dua kali luas yang benar. Rumus luas tidak memakai angka 2.",
+            3: "196 hanya r × r. Kamu belum mengalikan dengan π.",
+        },
+        "visual": {"radius": 14, "show_r": True, "show_d": False},
+    },
+    {   # DRAF BARU -> TODO GURU: ganti/periksa
+        "id": "mc7", "topic": "unsur",
+        "question": "Garis lurus dari titik pusat lingkaran ke tepi lingkaran disebut …",
+        "options": ["diameter", "jari-jari", "titik pusat", "keliling"],
+        "answer": 1,
+        "explanation": "Garis dari titik pusat ke tepi lingkaran adalah jari-jari (r).",
+        "steps": ["Jari-jari: pusat → tepi.", "Diameter: tepi → tepi melalui pusat."],
+        "miskonsepsi": {
+            0: "Diameter melewati titik pusat dan menghubungkan dua titik di tepi lingkaran.",
+            2: "Titik pusat adalah titik di tengah lingkaran, bukan garis.",
+            3: "Keliling adalah panjang garis tepi lingkaran.",
+        },
+        "visual": {"radius": 6, "show_r": True, "show_d": False},
+    },
+    {   # DRAF BARU -> TODO GURU: ganti/periksa
+        "id": "mc8", "topic": "unsur",
+        "question": "Sebuah jam dinding berbentuk lingkaran memiliki jari-jari 15 cm. Berapa diameter jam dinding tersebut?",
+        "options": ["7,5 cm", "15 cm", "30 cm", "45 cm"],
+        "answer": 2,
+        "explanation": "Diameter adalah dua kali jari-jari.",
+        "steps": ["Diketahui: r = 15 cm.", "d = 2 × r", "d = 2 × 15 = 30 cm"],
+        "miskonsepsi": {
+            0: "7,5 cm adalah setengah jari-jari. Diameter justru dua kali jari-jari.",
+            1: "15 cm adalah jari-jari itu sendiri.",
+            3: "45 cm tidak sesuai: d = 2 × r, bukan 3 × r.",
+        },
+    },
+    {   # DRAF BARU -> TODO GURU: ganti/periksa
+        "id": "mc9", "topic": "pi",
+        "question": "Sebuah roda memiliki jari-jari 10 cm. Nilai π yang paling sesuai untuk menghitung luasnya adalah …",
+        "options": ["22/7, karena 10 kelipatan 7", "3,14, karena 10 bukan kelipatan 7",
+                    "22/7, karena hasilnya selalu lebih tepat", "3,14, karena 10 adalah bilangan genap"],
+        "answer": 1,
+        "explanation": "10 bukan kelipatan 7, sehingga perhitungan lebih mudah memakai π = 3,14.",
+        "steps": ["Cek: apakah 10 kelipatan 7? Tidak.", "Pakai π = 3,14.", "L = 3,14 × 10 × 10 = 314 cm²"],
+        "miskonsepsi": {
+            0: "10 bukan kelipatan 7 (kelipatan 7: 7, 14, 21, ...).",
+            2: "Kedua nilai π adalah pendekatan; yang menentukan adalah kemudahan hitung sesuai ukuran.",
+            3: "Genap atau ganjil tidak menentukan pilihan π. Yang dilihat: kelipatan 7 atau bukan.",
+        },
+    },
+    {   # DRAF BARU -> TODO GURU: ganti/periksa
+        "id": "mc10", "topic": "cerita",
+        "question": "Sebuah kolam ikan berbentuk lingkaran berdiameter 42 m. Berapa luas permukaan air kolam tersebut?",
+        "options": ["132 m²", "1.386 m²", "2.772 m²", "5.544 m²"],
+        "answer": 1,
+        "explanation": "Ubah diameter menjadi jari-jari lebih dulu: r = 42 ÷ 2 = 21 m. Karena 21 kelipatan 7, gunakan π = 22/7.",
+        "steps": ["Diketahui: d = 42 m, sehingga r = 21 m.", "L = 22/7 × 21 × 21", "L = 22 × 3 × 21 = 1.386 m²"],
+        "miskonsepsi": {
+            0: "132 m² adalah keliling (22/7 × 42). Soal ini menanyakan luas.",
+            2: "2.772 adalah dua kali luas yang benar. Rumus luas tidak memakai angka 2.",
+            3: "5.544 muncul jika diameter (42) dipakai sebagai jari-jari. Bagi 2 dulu!",
+        },
+        "visual": {"radius": 21, "show_r": False, "show_d": True},
+    },
+]
+
+
+# ---- 3b. ESAI / PEMANTAPAN (5 soal) -------------------------
+def N(n):
+    """Pola regex untuk angka utuh n (tidak cocok dengan 128 jika n = 28)."""
+    return rf"(?<![\d.,]){n}(?!\d)"
+
+
+PAT_RUMUS = r"\bpi\b|r\s*x\s*r|r\s*2|luas lingkaran|(?<![a-z])l\s*=|luas\s*="
+PAT_PI_227 = r"22\s*/\s*7"
+PAT_PI_314 = r"3[,.]14"
+PAT_M2 = r"(?<![a-z])m2(?!\d)|meter persegi"
+PAT_CM2 = r"(?<![a-z])cm2(?!\d)|sentimeter persegi|cm persegi"
+
+# Rubrik: tiap kriteria diperiksa otomatis dari angka/kata kunci. Guru dapat mengubah
+# bobot ("points"), pola ("patterns") dan teks umpan balik ("ok"/"fail"/"partial").
+# kind = "contains" (ada salah satu pola) | "final" (cek angka jawaban akhir)
+# CATATAN GURU: esai 1 berasal dari kode asli. Esai 2-5 adalah DRAF BARU -> ganti/periksa.
+ESSAY_QUESTIONS = [
+    {   # kode asli (soal esai no. 7)
+        "id": "es1", "topic": "hitung",
+        "question": ("Sebuah taman berbentuk lingkaran memiliki diameter 28 meter. Pengelola ingin menanami "
+                     "seluruh permukaan taman dengan rumput. Berapa luas daerah yang akan ditanami rumput?"),
+        "hint": "Tuliskan: diketahui, ditanya, rumus/operasi yang digunakan, langkah perhitungan, dan kesimpulan.",
+        "answer": 616.0, "alt": {"value": 615.44, "credit": 0.5, "note": "Hasil 615,44 memakai π = 3,14. Karena r = 14 kelipatan 7, lebih tepat π = 22/7 (hasil 616)."},
+        "answer_text": "616 m²",
+        "needs_teacher": False,
+        "rubric": [
+            {"label": "Menuliskan yang diketahui (diameter 28 m)", "points": 10, "kind": "contains", "topic": "hubungan",
+             "patterns": [N(28)], "ok": "Kamu menuliskan ukuran diameter taman.", "fail": "Tuliskan dulu yang diketahui: diameter taman = 28 m."},
+            {"label": "Mengubah diameter menjadi jari-jari (r = 14 m)", "points": 20, "kind": "contains", "topic": "hubungan",
+             "patterns": [N(14)], "ok": "Bagus, kamu mencari jari-jari lebih dulu.", "fail": "Diameter harus dibagi 2 dulu: r = 28 ÷ 2 = 14 m."},
+            {"label": "Menuliskan rumus luas lingkaran", "points": 15, "kind": "contains", "topic": "rumus",
+             "patterns": [PAT_RUMUS], "ok": "Rumus luasmu sudah muncul.", "fail": "Tuliskan rumus: L = π × r × r."},
+            {"label": "Memilih π = 22/7 (r = 14 kelipatan 7)", "points": 10, "kind": "contains", "topic": "pi",
+             "patterns": [PAT_PI_227], "ok": "Pilihan π = 22/7 sudah tepat.", "fail": "Karena 14 kelipatan 7, gunakan π = 22/7."},
+            {"label": "Hasil akhir luas benar (616)", "points": 35, "kind": "final", "topic": "hitung",
+             "ok": "Jawaban akhirmu benar.", "fail": "Periksa lagi perkaliannya: 22/7 × 14 × 14 = 616.",
+             "partial": "Angkamu mendekati, tetapi nilai π kurang sesuai."},
+            {"label": "Satuan luas (m²)", "points": 10, "kind": "contains", "topic": "hitung",
+             "patterns": [PAT_M2], "ok": "Satuan m² sudah ada.", "fail": "Luas memakai satuan persegi, yaitu m²."},
+        ],
+        "solution": ["Diketahui: d = 28 m. Ditanya: luas taman (L).",
+                     "Cari jari-jari: r = d ÷ 2 = 28 ÷ 2 = 14 m.",
+                     "Karena 14 kelipatan 7, gunakan π = 22/7.",
+                     "L = π × r × r = 22/7 × 14 × 14 = 616 m².",
+                     "Kesimpulan: luas daerah yang ditanami rumput adalah 616 m²."],
+    },
+    {   # DRAF BARU
+        "id": "es2", "topic": "rumus",
+        "question": "Sebuah roda sepeda berbentuk lingkaran dengan jari-jari 21 cm. Hitunglah luas lingkaran yang dibentuk roda tersebut!",
+        "hint": "Tuliskan: diketahui, rumus, langkah perhitungan, dan kesimpulan.",
+        "answer": 1386.0, "alt": {"value": 1384.74, "credit": 0.5, "note": "Hasil 1.384,74 memakai π = 3,14. Karena r = 21 kelipatan 7, lebih tepat π = 22/7 (hasil 1.386)."},
+        "answer_text": "1.386 cm²", "needs_teacher": False,
+        "rubric": [
+            {"label": "Menuliskan yang diketahui (r = 21 cm)", "points": 10, "kind": "contains", "topic": "unsur",
+             "patterns": [N(21)], "ok": "Kamu menuliskan jari-jari roda.", "fail": "Tuliskan yang diketahui: r = 21 cm."},
+            {"label": "Menuliskan rumus luas lingkaran", "points": 20, "kind": "contains", "topic": "rumus",
+             "patterns": [PAT_RUMUS], "ok": "Rumus luasmu sudah muncul.", "fail": "Tuliskan rumus: L = π × r × r."},
+            {"label": "Memilih π = 22/7 (21 kelipatan 7)", "points": 15, "kind": "contains", "topic": "pi",
+             "patterns": [PAT_PI_227], "ok": "Pilihan π = 22/7 sudah tepat.", "fail": "Karena 21 kelipatan 7, gunakan π = 22/7."},
+            {"label": "Hasil akhir luas benar (1.386)", "points": 40, "kind": "final", "topic": "hitung",
+             "ok": "Jawaban akhirmu benar.", "fail": "Periksa lagi: 22/7 × 21 × 21 = 22 × 3 × 21 = 1.386.",
+             "partial": "Angkamu mendekati, tetapi nilai π kurang sesuai."},
+            {"label": "Satuan luas (cm²)", "points": 15, "kind": "contains", "topic": "hitung",
+             "patterns": [PAT_CM2], "ok": "Satuan cm² sudah ada.", "fail": "Luas memakai satuan persegi, yaitu cm²."},
+        ],
+        "solution": ["Diketahui: r = 21 cm. Ditanya: luas (L).", "Karena 21 kelipatan 7, gunakan π = 22/7.",
+                     "L = π × r × r = 22/7 × 21 × 21 = 1.386 cm².", "Kesimpulan: luas lingkaran roda adalah 1.386 cm²."],
+    },
+    {   # DRAF BARU
+        "id": "es3", "topic": "pi",
+        "question": "Sebuah jam dinding berbentuk lingkaran memiliki diameter 30 cm. Berapa luas permukaan muka jam tersebut?",
+        "hint": "Jelaskan juga mengapa kamu memilih nilai π tertentu.",
+        "answer": 706.5, "alt": {"value": 707.14, "credit": 0.5, "note": "Hasil 707,14 memakai π = 22/7. Karena r = 15 bukan kelipatan 7, lebih tepat π = 3,14 (hasil 706,5)."},
+        "answer_text": "706,5 cm²", "needs_teacher": False,
+        "rubric": [
+            {"label": "Menuliskan yang diketahui (d = 30 cm)", "points": 10, "kind": "contains", "topic": "unsur",
+             "patterns": [N(30)], "ok": "Kamu menuliskan diameter jam.", "fail": "Tuliskan yang diketahui: d = 30 cm."},
+            {"label": "Mengubah diameter menjadi jari-jari (r = 15 cm)", "points": 20, "kind": "contains", "topic": "hubungan",
+             "patterns": [N(15)], "ok": "Bagus, kamu mencari jari-jari lebih dulu.", "fail": "Bagi diameter dengan 2: r = 30 ÷ 2 = 15 cm."},
+            {"label": "Menuliskan rumus luas lingkaran", "points": 15, "kind": "contains", "topic": "rumus",
+             "patterns": [PAT_RUMUS], "ok": "Rumus luasmu sudah muncul.", "fail": "Tuliskan rumus: L = π × r × r."},
+            {"label": "Memilih π = 3,14 (15 bukan kelipatan 7)", "points": 10, "kind": "contains", "topic": "pi",
+             "patterns": [PAT_PI_314], "ok": "Pilihan π = 3,14 sudah tepat.", "fail": "Karena 15 bukan kelipatan 7, gunakan π = 3,14."},
+            {"label": "Hasil akhir luas benar (706,5)", "points": 35, "kind": "final", "topic": "hitung",
+             "ok": "Jawaban akhirmu benar.", "fail": "Periksa lagi: 3,14 × 15 × 15 = 706,5.",
+             "partial": "Angkamu mendekati, tetapi nilai π kurang sesuai."},
+            {"label": "Satuan luas (cm²)", "points": 10, "kind": "contains", "topic": "hitung",
+             "patterns": [PAT_CM2], "ok": "Satuan cm² sudah ada.", "fail": "Luas memakai satuan persegi, yaitu cm²."},
+        ],
+        "solution": ["Diketahui: d = 30 cm. Ditanya: luas (L).", "r = 30 ÷ 2 = 15 cm.",
+                     "15 bukan kelipatan 7, gunakan π = 3,14.", "L = 3,14 × 15 × 15 = 706,5 cm².",
+                     "Kesimpulan: luas muka jam adalah 706,5 cm²."],
+    },
+    {   # DRAF BARU (konseptual: penjelasan perlu dibaca guru)
+        "id": "es4", "topic": "hubungan",
+        "question": ("Pizza berdiameter 20 cm. Dani langsung memasukkan angka 20 ke rumus L = π × r × r. "
+                     "Apakah cara Dani sudah benar? Jelaskan alasanmu, lalu hitunglah luas pizza yang benar!"),
+        "hint": "Tulis jawaban 'benar/salah' beserta alasannya, lalu langkah perhitungan yang benar.",
+        "answer": 314.0, "alt": None, "answer_text": "Cara Dani belum benar; luas pizza = 314 cm²",
+        "needs_teacher": True,
+        "rubric": [
+            {"label": "Menyatakan bahwa cara Dani belum benar", "points": 25, "kind": "contains", "topic": "rumus",
+             "patterns": [r"tidak (benar|tepat|boleh|bisa|sesuai)|belum (benar|tepat)|salah|keliru"],
+             "ok": "Kamu menyatakan cara Dani belum benar.", "fail": "Nyatakan dengan jelas apakah cara Dani benar atau salah."},
+            {"label": "Menjelaskan bahwa 20 adalah diameter (bukan jari-jari)", "points": 20, "kind": "contains", "topic": "hubungan",
+             "patterns": [r"diameter"], "ok": "Kamu menyebut bahwa 20 adalah diameter.", "fail": "Jelaskan bahwa 20 cm adalah diameter, sedangkan rumus memakai jari-jari."},
+            {"label": "Mencari jari-jari yang benar (r = 10 cm)", "points": 15, "kind": "contains", "topic": "hubungan",
+             "patterns": [N(10)], "ok": "Jari-jari 10 cm sudah muncul.", "fail": "Bagi diameter dengan 2: r = 20 ÷ 2 = 10 cm."},
+            {"label": "Hasil akhir luas benar (314)", "points": 30, "kind": "final", "topic": "hitung",
+             "ok": "Jawaban akhirmu benar.", "fail": "Periksa lagi: 3,14 × 10 × 10 = 314.", "partial": ""},
+            {"label": "Satuan luas (cm²)", "points": 10, "kind": "contains", "topic": "hitung",
+             "patterns": [PAT_CM2], "ok": "Satuan cm² sudah ada.", "fail": "Luas memakai satuan persegi, yaitu cm²."},
+        ],
+        "solution": ["Cara Dani belum benar karena 20 cm adalah diameter, sedangkan rumus memakai jari-jari.",
+                     "r = d ÷ 2 = 20 ÷ 2 = 10 cm.", "Pakai π = 3,14 karena 10 bukan kelipatan 7.",
+                     "L = 3,14 × 10 × 10 = 314 cm²."],
+    },
+    {   # DRAF BARU
+        "id": "es5", "topic": "cerita",
+        "question": ("Dasar sebuah kolam berbentuk lingkaran dengan jari-jari 7 m akan dipasangi keramik. "
+                     "Harga keramik Rp10.000 per m². Berapa biaya yang diperlukan untuk memasang keramik di seluruh dasar kolam?"),
+        "hint": "Hitung luas dasar kolam lebih dulu, baru hitung biayanya.",
+        "answer": 1540000.0, "alt": None, "answer_text": "Rp1.540.000", "needs_teacher": False,
+        "rubric": [
+            {"label": "Menuliskan yang diketahui (r = 7 m)", "points": 10, "kind": "contains", "topic": "unsur",
+             "patterns": [N(7)], "ok": "Kamu menuliskan jari-jari kolam.", "fail": "Tuliskan yang diketahui: r = 7 m dan harga Rp10.000 per m²."},
+            {"label": "Menuliskan rumus luas lingkaran", "points": 10, "kind": "contains", "topic": "rumus",
+             "patterns": [PAT_RUMUS], "ok": "Rumus luasmu sudah muncul.", "fail": "Tuliskan rumus: L = π × r × r."},
+            {"label": "Memilih π = 22/7 (7 kelipatan 7)", "points": 10, "kind": "contains", "topic": "pi",
+             "patterns": [PAT_PI_227], "ok": "Pilihan π = 22/7 sudah tepat.", "fail": "Karena 7 kelipatan 7, gunakan π = 22/7."},
+            {"label": "Menghitung luas dasar kolam (154 m²)", "points": 25, "kind": "contains", "topic": "hitung",
+             "patterns": [N(154)], "ok": "Luas dasar kolam 154 m² sudah muncul.", "fail": "Hitung luas dulu: 22/7 × 7 × 7 = 154 m²."},
+            {"label": "Hasil akhir biaya benar (Rp1.540.000)", "points": 35, "kind": "final", "topic": "cerita",
+             "ok": "Jawaban akhirmu benar.", "fail": "Biaya = luas × harga per m² = 154 × 10.000.", "partial": ""},
+            {"label": "Menuliskan satuan rupiah (Rp)", "points": 10, "kind": "contains", "topic": "cerita",
+             "patterns": [r"(?<![a-z])rp|rupiah"], "ok": "Satuan rupiah sudah ada.", "fail": "Tuliskan jawaban dalam rupiah (Rp)."},
+        ],
+        "solution": ["Diketahui: r = 7 m; harga keramik Rp10.000 per m².", "L = 22/7 × 7 × 7 = 154 m².",
+                     "Biaya = 154 × Rp10.000 = Rp1.540.000.", "Kesimpulan: biaya yang diperlukan Rp1.540.000."],
+    },
+]
+
+# ============================================================
+# 4. FUNGSI PENILAIAN (logika murni, tanpa Streamlit)
+# ============================================================
+def norm_text(t):
+    """Menormalkan teks jawaban agar pemeriksaan tidak peka huruf besar/kecil atau simbol."""
+    t = (t or "").lower()
+    for a, b in (("²", "2"), ("³", "3"), ("π", " pi "), ("×", " x "), ("÷", " : "), ("·", " x "), ("*", " x ")):
+        t = t.replace(a, b)
+    return re.sub(r"\s+", " ", t)
+
+
+def parse_number(s):
+    """Mengubah teks jawaban (mis. '616 m²', '1.540.000', '706,5') menjadi angka. None jika tidak ada angka."""
+    t = norm_text(s)
+    t = re.sub(r"(?<![a-z])(cm|m)\s*2", " ", t)
+    t = re.sub(r"rupiah|meter persegi|persegi|(?<![a-z])rp\.?", " ", t)
+    tokens = re.findall(r"\d[\d.,]*\d|\d", t)
+    if not tokens:
+        return None
+    tok = tokens[-1]
+    if "." in tok and "," in tok:
+        tok = tok.replace(".", "").replace(",", ".")
+    elif "," in tok:
+        tok = tok.replace(",", "") if tok.count(",") > 1 else tok.replace(",", ".")
+    elif "." in tok and re.fullmatch(r"\d{1,3}(\.\d{3})+", tok):
+        tok = tok.replace(".", "")
+    try:
+        return float(tok)
+    except ValueError:
+        return None
+
+
+def close(a, b, tol=0.06):
+    return a is not None and math.isclose(a, b, abs_tol=tol)
+
+
+def grade_essay(q, steps, final, concl):
+    """Menilai esai berdasarkan rubrik (angka & kata kunci). Bukan penilaian makna bahasa."""
+    text = norm_text(f"{steps} {concl} {final}")
+    final_val = parse_number(final)
+    checks, got_total = [], 0.0
+    total = sum(c["points"] for c in q["rubric"])
+    for c in q["rubric"]:
+        frac, hint = 0.0, c["fail"]
+        if c["kind"] == "contains":
+            if any(re.search(p, text) for p in c["patterns"]):
+                frac, hint = 1.0, c["ok"]
+        elif c["kind"] == "final":
+            if close(final_val, q["answer"]):
+                frac, hint = 1.0, c["ok"]
+            elif q.get("alt") and close(final_val, q["alt"]["value"]):
+                frac, hint = q["alt"]["credit"], q["alt"]["note"]
+        got = c["points"] * frac
+        got_total += got
+        checks.append({"label": c["label"], "points": c["points"], "got": got, "frac": frac,
+                       "hint": hint, "topic": c["topic"]})
+    return {"score": round(got_total / total * 100), "checks": checks}
+
+
+def mc_status(stq):
+    """none = belum | benar = benar percobaan pertama | ulang = benar setelah mencoba lagi | salah = belum benar."""
+    a = stq["attempts"]
+    if not a:
+        return "none"
+    if a[0]["correct"]:
+        return "benar"
+    return "ulang" if any(x["correct"] for x in a) else "salah"
+
+
+def mc_stats(mc):
+    total = len(MC_QUESTIONS)
+    sts = [mc_status(mc["q"][q["id"]]) for q in MC_QUESTIONS]
+    benar = sts.count("benar")
+    checked = total - sts.count("none")
+    return {
+        "total": total, "statuses": sts, "checked": checked, "benar": benar,
+        "salah": checked - benar,                      # salah pada percobaan pertama
+        "tuntas": sts.count("benar") + sts.count("ulang"),
+        "nilai": round(benar / total * 100),           # skor utama = benar percobaan pertama
+        "progress": checked / total,
+    }
+
+
+def essay_stats(es):
+    total = len(ESSAY_QUESTIONS)
+    per, firsts, bests = [], [], []
+    for q in ESSAY_QUESTIONS:
+        subs = es["q"][q["id"]]["subs"]
+        first = subs[0]["score"] if subs else None
+        best = max(s["score"] for s in subs) if subs else None
+        per.append({"first": first, "best": best, "n": len(subs)})
+        firsts.append(first or 0)
+        bests.append(best or 0)
+    submitted = sum(1 for p in per if p["n"])
+    return {"total": total, "per": per, "submitted": submitted, "progress": submitted / total,
+            "nilai_pertama": round(sum(firsts) / total), "nilai_terbaik": round(sum(bests) / total)}
+
+
+def topic_mastery(mc, es):
+    """Penguasaan per topik (0-100) dari soal PG (percobaan pertama) dan kriteria esai (pengiriman pertama)."""
+    ev = {}
+    for q in MC_QUESTIONS:
+        s = mc_status(mc["q"][q["id"]])
+        if s != "none":
+            ev.setdefault(q["topic"], []).append((1.0 if s == "benar" else 0.0, 1.0))
+    for q in ESSAY_QUESTIONS:
+        subs = es["q"][q["id"]]["subs"]
+        if subs:
+            for ch in subs[0]["checks"]:
+                ev.setdefault(ch["topic"], []).append((ch["got"] / ch["points"], ch["points"] / 100))
+    out = {}
+    for t, items in ev.items():
+        w = sum(x[1] for x in items)
+        out[t] = round(sum(f * wt for f, wt in items) / w * 100)
+    return out
+
+
+# ============================================================
+# 5. TAMPILAN (UI)
+# ============================================================
 st.set_page_config(
-    page_title="Petualangan Luas Lingkaran",
-    page_icon="🔵",
-    layout="wide"
+    page_title="Petualangan Luas Lingkaran | Kelas VI",
+    page_icon="⭕", layout="wide", initial_sidebar_state="collapsed",
 )
 
-# =========================
-# DESAIN TAMPILAN
-# =========================
 st.markdown("""
 <style>
-.stApp {
-    background-color: #FFF9F0;
-}
-.main-title {
-    text-align: center;
-    color: #FF758F;
-    font-size: 38px;
-    font-weight: bold;
-}
-.subtitle {
-    text-align: center;
-    color: #64748B;
-    font-size: 17px;
-}
-.lesson-card {
-    background-color: #FFFFFF;
-    padding: 20px;
-    border-radius: 18px;
-    border: 2px solid #FFD6A5;
-    margin-bottom: 12px;
-}
-div.stButton > button {
-    border-radius: 12px;
-    font-weight: bold;
-}
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+html, body, [class*="css"] { font-family: 'Nunito', sans-serif; }
+.stApp { background: #F7FAF5; color: #24352A; }
+[data-testid="stHeader"] { background: #F7FAF5; }
+.hero { background: linear-gradient(120deg, #DDEFE0, #FFF1C9); padding: 1.4rem 1.8rem;
+        border-radius: 24px; border: 1px solid #D0E3D1; margin-bottom: 1rem; }
+.hero h1 { color: #214D35 !important; margin-bottom: .2rem; }
+.hero p { color: #355B43 !important; font-size: 1.05rem; margin: 0; }
+.info-card { background: white; color: #24352A; padding: 1rem; border-radius: 18px;
+             border: 1px solid #E0E9DF; min-height: 110px; margin-bottom: .5rem; }
+.formula { background: #E5F1E5; color: #214D35 !important; padding: 1rem; border-radius: 15px;
+           text-align: center; font-size: 1.35rem; font-weight: 800; margin: .6rem 0; }
+.badge { display: inline-block; background: #FFF1C9; color: #5A4310; border: 1px solid #EBD592;
+         padding: .35rem .9rem; border-radius: 999px; font-weight: 700; font-size: .92rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0 .2rem; }
+.chip { background: white; color: #24352A; border: 1px solid #D0E3D1; border-radius: 12px;
+        padding: .25rem .6rem; font-weight: 700; font-size: .9rem; }
+.chip.cur { border: 2px solid #2F7047; background: #E5F1E5; }
+div.stButton > button { border-radius: 13px; font-weight: 800; border: 1px solid #B8D2BA; min-height: 2.8rem; }
+[data-testid="stMetric"] { background: white; padding: .8rem; border-radius: 14px; border: 1px solid #E0E9DF; }
+.small-note { color: #4A5D4D; font-size: .9rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# =========================
-# DATA SOAL
-# =========================
-soal_pg = [
-    {
-        "soal": "Apa yang dimaksud dengan luas lingkaran?",
-        "opsi": [
-            "Panjang garis tepi lingkaran",
-            "Daerah yang berada di dalam lingkaran",
-            "Jarak dari pusat ke tepi",
-            "Garis yang melewati pusat"
-        ],
-        "jawaban": 1
-    },
-    {
-        "soal": "Apa rumus luas lingkaran?",
-        "opsi": ["2 × π × r", "π × r", "π × r × r", "π + r"],
-        "jawaban": 2
-    },
-    {
-        "soal": "Jika jari-jari lingkaran 7 cm, berapa diameternya?",
-        "opsi": ["7 cm", "14 cm", "21 cm", "28 cm"],
-        "jawaban": 1
-    },
-    {
-        "soal": "Jika diameter lingkaran 20 cm, berapa jari-jarinya?",
-        "opsi": ["5 cm", "10 cm", "20 cm", "40 cm"],
-        "jawaban": 1
-    },
-    {
-        "soal": "Nilai π yang sering digunakan jika jari-jari kelipatan 7 adalah ...",
-        "opsi": ["2,14", "3,14", "22/7", "7/22"],
-        "jawaban": 2
-    },
-    {
-        "soal": "Sebuah lingkaran memiliki jari-jari 7 cm. Luasnya adalah ...",
-        "opsi": ["44 cm²", "77 cm²", "154 cm²", "308 cm²"],
-        "jawaban": 2
-    },
-    {
-        "soal": "Luas lingkaran dengan jari-jari 10 cm adalah ... (π = 3,14)",
-        "opsi": ["31,4 cm²", "62,8 cm²", "100 cm²", "314 cm²"],
-        "jawaban": 3
-    },
-    {
-        "soal": "Sebuah lingkaran memiliki diameter 14 cm. Luasnya adalah ...",
-        "opsi": ["44 cm²", "154 cm²", "196 cm²", "308 cm²"],
-        "jawaban": 1
-    },
-    {
-        "soal": "Jika jari-jari lingkaran menjadi 2 kali semula, luasnya menjadi ...",
-        "opsi": [
-            "2 kali semula",
-            "3 kali semula",
-            "4 kali semula",
-            "Tetap sama"
-        ],
-        "jawaban": 2
-    },
-    {
-        "soal": "Sebuah taman berbentuk lingkaran memiliki jari-jari 14 m. Berapa luasnya?",
-        "opsi": [
-            "154 m²",
-            "308 m²",
-            "616 m²",
-            "1.232 m²"
-        ],
-        "jawaban": 2
-    }
+# ---------- MENU ----------
+MENU = [
+    ("🎯", "Capaian Pembelajaran"),
+    ("🧭", "Petunjuk Penggunaan LKPD"),
+    ("🌻", "Pengantar Materi"),
+    ("🧠", "Materi Inti"),
+    ("✏️", "Latihan Soal"),
+    ("📊", "Progres dan Hasil Belajar"),
+    ("💭", "Refleksi Pembelajaran"),
 ]
+# Bagian yang ditandai selesai lewat tombol. Latihan dihitung dari status soal sebenarnya.
+READING_SECTIONS = ["Capaian Pembelajaran", "Petunjuk Penggunaan LKPD", "Pengantar Materi",
+                    "Materi Inti", "Refleksi Pembelajaran"]
+SECTION_OF = {"Latihan PG": "Latihan Soal", "Hasil PG": "Latihan Soal",
+              "Latihan Esai": "Latihan Soal", "Hasil Esai": "Latihan Soal"}
 
-# Lima soal tambahan berupa jawaban angka
-soal_isian = [
-    {
-        "soal": "Jari-jari lingkaran 14 cm. Hitung luasnya! (π = 22/7)",
-        "jawaban": 616,
-        "satuan": "cm²"
-    },
-    {
-        "soal": "Diameter lingkaran 28 cm. Berapa jari-jarinya?",
-        "jawaban": 14,
-        "satuan": "cm"
-    },
-    {
-        "soal": "Jari-jari lingkaran 5 cm. Hitung luasnya! (π = 3,14)",
-        "jawaban": 78.5,
-        "satuan": "cm²"
-    },
-    {
-        "soal": "Luas lingkaran 154 cm². Jika π = 22/7, berapa jari-jarinya?",
-        "jawaban": 7,
-        "satuan": "cm"
-    },
-    {
-        "soal": "Jari-jari roda berbentuk lingkaran 21 cm. Berapa luasnya? (π = 22/7)",
-        "jawaban": 1386,
-        "satuan": "cm²"
-    }
-]
 
-# =========================
-# SESSION STATE
-# =========================
-if "halaman" not in st.session_state:
-    st.session_state.halaman = "Beranda"
+# ---------- SESSION STATE ----------
+def new_mc(run=1):
+    return {"run": run, "idx": 0, "finished": False, "celebrated": False,
+            "show_review": False, "confirm_reset": False,
+            "q": {q["id"]: {"attempts": [], "locked": False, "try": 1} for q in MC_QUESTIONS}}
 
-if "nama" not in st.session_state:
-    st.session_state.nama = ""
 
-if "hasil" not in st.session_state:
-    st.session_state.hasil = None
+def new_essay(run=1):
+    return {"run": run, "idx": 0, "finished": False, "celebrated": False,
+            "show_review": False, "confirm_reset": False,
+            "q": {q["id"]: {"subs": [], "locked": False, "try": 1} for q in ESSAY_QUESTIONS}}
 
-# =========================
-# SIDEBAR / NAVIGASI
-# =========================
-st.sidebar.title("🌈 Menu Belajar")
-st.sidebar.caption("Petualangan Luas Lingkaran")
 
-menu = st.sidebar.radio(
-    "Pilih halaman:",
-    [
-        "Beranda",
-        "Materi",
-        "Visualisasi",
-        "Latihan",
-        "Hasil Belajar"
-    ],
-    key="menu_navigasi"
-)
+_DEFAULTS = {
+    "screen": lambda: "Cover",
+    "student": lambda: None,          # {"nama","kelas","absen"}
+    "completed": lambda: set(),       # bagian yang ditandai selesai
+    "visited": lambda: set(),         # bagian yang pernah dibuka
+    "materi_step": lambda: 0,
+    "materi_seen": lambda: set(),     # langkah materi yang sudah dilihat
+    "mc": new_mc,
+    "essay": new_essay,
+    "mc_history": lambda: [],
+    "essay_history": lambda: [],
+    "reflection": lambda: {},
+    "saved": lambda: {},              # draf isian agar tidak hilang saat pindah halaman
+    "teacher_scores": lambda: {},
+    "audio_on": lambda: False,
+}
+for _k, _f in _DEFAULTS.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _f()
 
-st.session_state.halaman = menu
 
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "💡 Tips: Pelajari materi dahulu, "
-    "lalu kerjakan latihan dengan teliti!"
-)
+def go(screen):
+    st.session_state.screen = screen
+    st.rerun()
 
-# =========================
-# BERANDA
-# =========================
-if menu == "Beranda":
-    st.markdown(
-        '<div class="main-title">🔵 Petualangan Luas Lingkaran</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        '<div class="subtitle">Belajar matematika jadi seru '
-        'bersama si Lingkaran!</div>',
-        unsafe_allow_html=True
-    )
 
-    st.write("")
-    kiri, kanan = st.columns([1, 1])
+def go_materi(step):
+    st.session_state.materi_step = step
+    go("Materi Inti")
 
-    with kiri:
-        st.markdown("""
-        <div class="lesson-card">
-        <h3>🎒 Halo, Teman Matematika!</h3>
-        Yuk, kita belajar menghitung luas lingkaran
-        melalui materi, gambar, dan permainan soal.
-        </div>
-        """, unsafe_allow_html=True)
 
-        nama = st.text_input(
-            "Siapa namamu?",
-            value=st.session_state.nama,
-            placeholder="Tulis namamu di sini..."
-        )
-        st.session_state.nama = nama
+def mark_complete(section):
+    st.session_state.completed.add(section)
 
-        st.success("Ayo belajar sambil bermain! 🌟")
 
-    with kanan:
-        st.markdown("### 🎯 Misi Belajar")
-        st.markdown("""
-        - 📖 Memahami pengertian luas lingkaran.
-        - 📐 Mengenal jari-jari dan diameter.
-        - 🔵 Melihat bentuk lingkaran.
-        - ✏️ Menyelesaikan 10 soal pilihan ganda.
-        - 🧩 Mencoba 5 soal tambahan.
-        """)
+def seed(key):
+    """Mengembalikan draf isian ke widget sebelum widget dibuat."""
+    saved = st.session_state.saved
+    if key not in st.session_state and saved.get(key) not in (None, ""):
+        st.session_state[key] = saved[key]
 
-    st.markdown("---")
-    st.markdown("### 🚀 Siap memulai petualangan?")
-    st.write("Pilih menu **Materi** untuk mulai belajar.")
-    st.button(
-        "📚 Mulai Belajar",
-        on_click=lambda: st.session_state.update(
-            menu_navigasi="Materi",
-            halaman="Materi"
-        ),
-        use_container_width=True
-    )
 
-# =========================
-# MATERI
-# =========================
-elif menu == "Materi":
-    st.title("📚 Mengenal Luas Lingkaran")
+def keep(key):
+    v = st.session_state.get(key)
+    if v is not None:
+        st.session_state.saved[key] = v
 
-    st.markdown("""
-    <div class="lesson-card">
-    <h3>🔵 Apa itu lingkaran?</h3>
-    Lingkaran adalah bangun datar yang memiliki satu titik pusat
-    dan garis tepi yang setiap titiknya berjarak sama dari pusat.
-    </div>
-    """, unsafe_allow_html=True)
 
-    st.subheader("📏 Bagian-bagian lingkaran")
-    st.markdown("""
-    - **Titik pusat:** titik yang berada di tengah lingkaran.
-    - **Jari-jari (r):** jarak dari titik pusat ke tepi lingkaran.
-    - **Diameter (d):** garis yang melewati titik pusat
-      dan menghubungkan dua titik pada tepi lingkaran.
-    """)
+def esc(s):
+    return html.escape(str(s))
 
-    st.subheader("🧮 Rumus luas lingkaran")
-    st.latex(r"L = \pi \times r \times r")
-    st.write("Keterangan:")
-    st.write("- L = luas lingkaran")
-    st.write("- π = 3,14 atau 22/7")
-    st.write("- r = jari-jari lingkaran")
 
-    st.info("Ingat: diameter = 2 × jari-jari.")
+def now():
+    return datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    st.subheader("✏️ Contoh soal")
-    st.write(
-        "Sebuah lingkaran mempunyai jari-jari 7 cm. "
-        "Berapa luasnya?"
-    )
 
-    with st.expander("Lihat langkah penyelesaian"):
-        st.write("Diketahui: r = 7 cm dan π = 22/7")
-        st.latex(r"L = \pi \times r \times r")
-        st.latex(r"L = \frac{22}{7} \times 7 \times 7")
-        st.latex(r"L = 154\text{ cm}^2")
-        st.success("Jadi, luas lingkaran adalah 154 cm².")
+# ---------- KOMPONEN UMUM ----------
+def hero(title, subtitle):
+    st.markdown(f'<div class="hero"><h1>{title}</h1><p>{subtitle}</p></div>', unsafe_allow_html=True)
 
-# =========================
-# VISUALISASI LINGKARAN
-# =========================
-elif menu == "Visualisasi":
-    st.title("🎨 Ayo Bermain dengan Lingkaran!")
-    st.write(
-        "Geser jari-jari dan lihat bagaimana ukuran "
-        "lingkaran berubah."
-    )
 
-    radius = st.slider(
-        "Pilih jari-jari lingkaran (cm)",
-        min_value=1,
-        max_value=20,
-        value=7
-    )
+def student_badge():
+    s = st.session_state.student
+    if s:
+        st.markdown(f'<span class="badge">👤 {esc(s["nama"])} • Kelas {esc(s["kelas"])} • No. absen {esc(s["absen"])}</span>',
+                    unsafe_allow_html=True)
 
-    fig, ax = plt.subplots(figsize=(5, 5))
-    lingkaran = Circle(
-        (0, 0),
-        radius,
-        facecolor="#FFB3C6",
-        edgecolor="#FF4D6D",
-        linewidth=3,
-        alpha=0.8
-    )
 
-    ax.add_patch(lingkaran)
-    ax.plot(0, 0, "o", color="#264653")
-    ax.plot([0, radius], [0, 0], color="#264653", linewidth=3)
+def page_header(title, subtitle):
+    hero(title, subtitle)
+    left, right = st.columns([4, 1])
+    with left:
+        student_badge()
+    with right:
+        if st.button("🏠 Menu", key="top_menu", use_container_width=True):
+            go("Menu")
 
-    ax.text(
-        radius / 2,
-        0.5,
-        f"r = {radius} cm",
-        ha="center",
-        fontsize=12
-    )
 
-    ax.set_xlim(-radius - 2, radius + 2)
-    ax.set_ylim(-radius - 2, radius + 2)
+def nav_buttons(back_label=None, back_screen=None):
+    st.divider()
+    cols = st.columns(3 if back_label else 2)
+    i = 0
+    if back_label:
+        if cols[0].button(back_label, key="nav_back", use_container_width=True):
+            go(back_screen)
+        i = 1
+    if cols[i].button("🏠 Menu Utama", key="nav_menu", use_container_width=True):
+        go("Menu")
+    if cols[i + 1].button("🏡 Kembali ke Cover", key="nav_cover", use_container_width=True):
+        go("Cover")
+
+
+def draw_circle(radius=7, show_r=True, show_d=True, size=(4.4, 3.2)):
+    """Lingkaran dengan titik pusat O. show_r / show_d mengatur label yang ditampilkan."""
+    fig, ax = plt.subplots(figsize=size)
+    ax.add_patch(Circle((0, 0), radius, facecolor="#DDEFE0", edgecolor="#2F7047", linewidth=2.5, alpha=.95))
+    ax.scatter([0], [0], color="#2F7047", zorder=3)
+    ax.text(0, .45 * radius / 7 + .1, "O", ha="center", color="#2F7047", fontsize=10, weight="bold")
+    if show_r:
+        ax.plot([0, radius], [0, 0], color="#D18B2C", linewidth=2.7)
+        ax.scatter([radius], [0], color="#D18B2C", zorder=3)
+        ax.text(radius / 2, -.55 * radius / 7 - .2, f"r = {radius:g}", ha="center",
+                color="#80531A", fontsize=11, weight="bold")
+    if show_d:
+        ax.plot([-radius, radius], [0, 0], color="#547BBA", linewidth=1.8, linestyle="--")
+        ax.text(0, -radius * .35 - .6, f"d = {2 * radius:g}", ha="center",
+                color="#34588A", fontsize=10, weight="bold")
+    ax.set_xlim(-radius - 1.5, radius + 1.5)
+    ax.set_ylim(-radius - 1.5, radius + 1.5)
     ax.set_aspect("equal")
-    ax.grid(True, alpha=0.2)
-    ax.set_title("Lingkaran dan Jari-jari")
-
-    st.pyplot(fig)
+    ax.axis("off")
+    fig.patch.set_alpha(0)
+    st.pyplot(fig, use_container_width=False)
     plt.close(fig)
 
-    luas = math.pi * radius**2
 
-    kolom1, kolom2 = st.columns(2)
-    kolom1.metric("Jari-jari", f"{radius} cm")
-    kolom2.metric("Luas (π = 3,14)", f"{luas:.2f} cm²")
+def fmt_num(value):
+    if abs(value - round(value)) < 1e-8:
+        return str(int(round(value)))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
 
-    st.caption(
-        "Semakin besar jari-jari, semakin besar pula luas lingkaran."
-    )
 
-# =========================
-# LATIHAN
-# =========================
-elif menu == "Latihan":
-    st.title("✏️ Kuis Petualangan")
-    st.write("Jawab semua soal, ya! Semangat! 🌟")
+@st.cache_data
+def make_tone(correct=True):
+    """Bunyi pendek opsional (siswa perlu menekan play karena kebijakan browser)."""
+    rate, dur, freq = 22050, 0.24, (880 if correct else 220)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        for i in range(int(rate * dur)):
+            fade = min(1, i / 300, (rate * dur - i) / 500)
+            wav.writeframesraw(struct.pack("<h", int(11000 * max(0, fade) * math.sin(2 * math.pi * freq * i / rate))))
+    return buf.getvalue()
 
-    tab1, tab2 = st.tabs([
-        "🔵 10 Pilihan Ganda",
-        "🧩 5 Soal Tambahan"
-    ])
 
-    with tab1:
-        with st.form("form_pg"):
-            jawaban_pg = {}
-
-            for i, soal in enumerate(soal_pg):
-                st.markdown(f"**Soal {i+1}. {soal['soal']}**")
-
-                jawaban_pg[i] = st.radio(
-                    "Pilih jawaban:",
-                    options=list(range(len(soal["opsi"]))),
-                    format_func=lambda x, s=soal: s["opsi"][x],
-                    key=f"pg_{i}",
-                    index=None
-                )
-                st.markdown("---")
-
-            kirim_pg = st.form_submit_button(
-                "Periksa Pilihan Ganda",
-                use_container_width=True
-            )
-
-        if kirim_pg:
-            benar = 0
-            kosong = 0
-
-            for i, soal in enumerate(soal_pg):
-                pilihan = jawaban_pg[i]
-                if pilihan is None:
-                    kosong += 1
-                elif pilihan == soal["jawaban"]:
-                    benar += 1
-
-            nilai_pg = benar * 10
-
-            st.session_state.hasil_pg = {
-                "benar": benar,
-                "kosong": kosong,
-                "nilai": nilai_pg,
-                "jawaban": jawaban_pg
-            }
-
-            st.success(
-                f"Pilihan ganda selesai! "
-                f"Jawaban benar: {benar}/10. "
-                f"Nilai: {nilai_pg}/100."
-            )
-
-            for i, soal in enumerate(soal_pg):
-                pilihan = jawaban_pg[i]
-                teks_benar = soal["opsi"][soal["jawaban"]]
-
-                if pilihan == soal["jawaban"]:
-                    st.write(f"✅ Soal {i+1}: Benar!")
-                else:
-                    st.write(
-                        f"❌ Soal {i+1}: Jawaban benar adalah "
-                        f"**{teks_benar}**."
-                    )
-
-    with tab2:
-        st.info(
-            "Masukkan jawaban berupa angka saja. "
-            "Contoh: 154. Gunakan titik untuk desimal, "
-            "misalnya 78.5."
-        )
-
-        with st.form("form_isian"):
-            jawaban_isian = {}
-
-            for i, soal in enumerate(soal_isian):
-                st.markdown(f"**Soal {i+1}. {soal['soal']}**")
-                jawaban_isian[i] = st.text_input(
-                    f"Jawaban ({soal['satuan']})",
-                    key=f"isian_{i}"
-                )
-
-            kirim_isian = st.form_submit_button(
-                "Periksa Soal Tambahan",
-                use_container_width=True
-            )
-
-        if kirim_isian:
-            benar = 0
-            detail = []
-
-            for i, soal in enumerate(soal_isian):
-                teks = jawaban_isian[i].strip().replace(",", ".")
-
-                try:
-                    nilai = float(teks)
-                    betul = math.isclose(
-                        nilai,
-                        soal["jawaban"],
-                        rel_tol=0,
-                        abs_tol=0.02
-                    )
-                except ValueError:
-                    betul = False
-
-                if betul:
-                    benar += 1
-
-                detail.append({
-                    "nomor": i + 1,
-                    "betul": betul,
-                    "jawaban_benar": soal["jawaban"],
-                    "satuan": soal["satuan"]
-                })
-
-            st.session_state.hasil_isian = {
-                "benar": benar,
-                "nilai": benar * 20,
-                "detail": detail
-            }
-
-            st.success(
-                f"Soal tambahan selesai! "
-                f"Jawaban benar: {benar}/5. "
-                f"Nilai: {benar * 20}/100."
-            )
-
-            for item in detail:
-                if item["betul"]:
-                    st.write(f"✅ Soal {item['nomor']}: Benar!")
-                else:
-                    st.write(
-                        f"❌ Soal {item['nomor']}: "
-                        f"Jawaban benar adalah "
-                        f"{item['jawaban_benar']} "
-                        f"{item['satuan']}."
-                    )
-
-# =========================
-# HASIL DAN PROGRES BELAJAR
-# =========================
-elif menu == "Hasil Belajar":
-    st.title("🏆 Hasil Belajarku")
-
-    hasil_pg = st.session_state.get("hasil_pg")
-    hasil_isian = st.session_state.get("hasil_isian")
-
-    if not hasil_pg and not hasil_isian:
-        st.info(
-            "Kamu belum mengerjakan latihan. "
-            "Yuk, buka menu Latihan terlebih dahulu!"
-        )
+def video_block(url, label="video pembelajaran"):
+    """Tampilkan video bila tautan diisi guru; jika kosong tampilkan placeholder (tidak mengarang tautan)."""
+    if url and url.startswith("https://"):
+        try:
+            st.video(url)
+        except Exception:
+            st.link_button(f"▶️ Buka {label}", url)
     else:
-        skor_pg = hasil_pg["nilai"] if hasil_pg else None
-        skor_isian = hasil_isian["nilai"] if hasil_isian else None
+        st.info(f"📌 Tempat {label}. Tautan belum diisi guru (isi pada bagian KONFIGURASI di app.py).")
 
-        if skor_pg is not None:
-            st.subheader("🔵 Hasil Pilihan Ganda")
-            st.metric(
-                "Nilai pilihan ganda",
-                f"{skor_pg}/100"
-            )
-            st.progress(skor_pg / 100)
 
-        if skor_isian is not None:
-            st.subheader("🧩 Hasil Soal Tambahan")
-            st.metric(
-                "Nilai soal tambahan",
-                f"{skor_isian}/100"
-            )
-            st.progress(skor_isian / 100)
+def overall_progress():
+    mcs, ess = mc_stats(st.session_state.mc), essay_stats(st.session_state.essay)
+    parts = [1.0 if s in st.session_state.completed else 0.0 for s in READING_SECTIONS]
+    parts += [mcs["progress"], ess["progress"]]
+    return sum(parts) / len(parts)
 
-        if skor_pg is not None and skor_isian is not None:
-            nilai_akhir = round((skor_pg + skor_isian) / 2)
 
-            st.markdown("---")
-            st.subheader("🌟 Nilai Akhir")
-            st.metric("Rata-rata nilai", f"{nilai_akhir}/100")
-            st.progress(nilai_akhir / 100)
+def section_status(title):
+    if title == "Latihan Soal":
+        m, e = mc_stats(st.session_state.mc), essay_stats(st.session_state.essay)
+        return f"PG {m['checked']}/{m['total']} • Esai {e['submitted']}/{e['total']}"
+    if title == "Progres dan Hasil Belajar":
+        return f"Keseluruhan {round(overall_progress() * 100)}%"
+    if title in st.session_state.completed:
+        return "✅ Selesai"
+    return "📖 Sudah dibuka" if title in st.session_state.visited else "⚪ Belum dibuka"
 
-            if nilai_akhir >= 80:
-                st.balloons()
-                st.success(
-                    "Hebat! Kamu sudah memahami luas lingkaran. 🎉"
-                )
-            elif nilai_akhir >= 60:
-                st.info(
-                    "Bagus! Pelajari kembali materi yang belum dikuasai."
-                )
-            else:
-                st.warning(
-                    "Jangan menyerah! Baca materi lagi dan coba latihan."
-                )
 
-        elif skor_pg is not None:
-            st.info(
-                "Pilihan ganda sudah selesai. "
-                "Kerjakan soal tambahan untuk melihat nilai akhir."
-            )
+def render_recommendations(items, prefix):
+    """items: daftar (topik, alasan). Tiap topik tampil sekali dengan tombol ke materi terkait."""
+    shown = set()
+    for topic, reason in items:
+        if topic in shown:
+            continue
+        shown.add(topic)
+        t = TOPICS[topic]
+        with st.container(border=True):
+            st.markdown(f"**📌 {t['label']}**")
+            st.write(reason)
+            st.caption(t["tip"])
+            c1, c2 = st.columns(2)
+            if c1.button("📖 Pelajari bagian materinya", key=f"{prefix}_mat_{topic}", use_container_width=True):
+                go_materi(t["step"])
+            with c2:
+                if t["video"] and t["video"].startswith("https://"):
+                    st.link_button("▶️ Tonton video penjelasan", t["video"], use_container_width=True)
+                else:
+                    st.caption("🎬 Tautan video topik ini belum diisi guru.")
+    if not shown:
+        st.success("🌟 Tidak ada materi yang perlu diulang saat ini. Pertahankan!")
+
+
+# ============================================================
+# HALAMAN: COVER, IDENTITAS, MENU
+# ============================================================
+def page_cover():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="190" height="190">'
+           '<circle cx="100" cy="100" r="82" fill="#DDEFE0" stroke="#2F7047" stroke-width="6"/>'
+           '<line x1="18" y1="100" x2="182" y2="100" stroke="#547BBA" stroke-width="3" stroke-dasharray="7 6"/>'
+           '<line x1="100" y1="100" x2="182" y2="100" stroke="#D18B2C" stroke-width="6" stroke-linecap="round"/>'
+           '<circle cx="100" cy="100" r="7" fill="#2F7047"/><circle cx="182" cy="100" r="6" fill="#D18B2C"/>'
+           '<text x="136" y="88" font-size="20" font-weight="800" fill="#80531A" font-family="sans-serif">r</text>'
+           '<text x="52" y="128" font-size="20" font-weight="800" fill="#34588A" font-family="sans-serif">d</text>'
+           '<text x="94" y="124" font-size="14" font-weight="800" fill="#2F7047" font-family="sans-serif">O</text></svg>')
+    b64 = base64.b64encode(svg.encode()).decode()
+    st.markdown(f"<div style='text-align:center'><img src='data:image/svg+xml;base64,{b64}' width='190'></div>",
+                unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="hero" style="text-align:center;padding:2rem 1.5rem">
+      <p style="font-weight:800;letter-spacing:2px">MATEMATIKA • KELAS VI SD/MI</p>
+      <h1 style="font-size:2.6rem">Petualangan Luas Lingkaran</h1>
+      <p>Amati bentuknya, temukan rumusnya, lalu pecahkan tantangannya!</p>
+      <p class="small-note" style="margin-top:.6rem">{esc(NAMA_SEKOLAH)}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    c1.markdown('<div class="info-card">⭕<br><b>Kenali bentuk</b><br>Jari-jari dan diameter</div>', unsafe_allow_html=True)
+    c2.markdown('<div class="info-card">🧮<br><b>Belajar menghitung</b><br>Rumus luas lingkaran</div>', unsafe_allow_html=True)
+    c3.markdown('<div class="info-card">🏆<br><b>Taklukkan tantangan</b><br>Latihan dan refleksi</div>', unsafe_allow_html=True)
+    label = "🚀 Lanjutkan Belajar" if st.session_state.student else "🚀 Mulai Petualangan"
+    if st.button(label, type="primary", use_container_width=True, key="cover_start"):
+        go("Menu" if st.session_state.student else "Identitas")
+
+
+def page_identitas():
+    hero("👋 Kenalan dulu, yuk!", "Isi identitasmu sebelum masuk ke menu belajar.")
+    cur = st.session_state.student or {}
+    with st.form("form_identitas"):
+        nama = st.text_input("Nama lengkap", value=cur.get("nama", ""), placeholder="Tulis nama lengkapmu")
+        kelas = st.text_input("Kelas", value=cur.get("kelas", ""), placeholder="Contoh: VI-A")
+        absen = st.number_input("Nomor absen", min_value=1, max_value=100, value=None, step=1,
+                                placeholder="Isi nomor absenmu")
+        ok = st.form_submit_button("➡️ Lanjut ke Menu Utama", type="primary")
+    if ok:
+        errors = []
+        if not nama.strip():
+            errors.append("Nama lengkap belum diisi.")
+        if not kelas.strip():
+            errors.append("Kelas belum diisi.")
+        if absen is None:
+            errors.append("Nomor absen belum diisi.")
+        if errors:
+            for e in errors:
+                st.error("⚠️ " + e)
         else:
-            st.info(
-                "Soal tambahan sudah selesai. "
-                "Kerjakan pilihan ganda untuk melihat nilai akhir."
-            )
+            st.session_state.student = {"nama": nama.strip(), "kelas": kelas.strip(), "absen": int(absen)}
+            go("Menu")
+    if st.button("🏡 Kembali ke Cover", key="ident_cover"):
+        go("Cover")
 
-    st.markdown("---")
-    st.caption(
-        "Catatan: hasil belajar tersimpan selama sesi aplikasi aktif. "
-        "Jika aplikasi dimulai ulang, hasil dapat terhapus."
-    )
+
+def page_menu():
+    hero("🏠 Menu Utama", "Pilih bagian yang ingin kamu pelajari. Kamu bisa kembali ke menu ini kapan saja.")
+    student_badge()
+    pct = overall_progress()
+    st.metric("Progres belajar keseluruhan", f"{round(pct * 100)}%")
+    st.progress(pct)
+    st.caption("Progres dihitung dari bagian yang sudah ditandai selesai, soal pilihan ganda yang diperiksa, dan soal esai yang dikirim.")
+    cards = st.columns(3)
+    for i, (emoji, title) in enumerate(MENU):
+        with cards[i % 3]:
+            st.markdown(f'<div class="info-card"><div style="font-size:2rem">{emoji}</div>'
+                        f'<b>{title}</b><br><span class="small-note">{section_status(title)}</span></div>',
+                        unsafe_allow_html=True)
+            if st.button(f"Buka {title}", key=f"menu_{i}", use_container_width=True):
+                go(title)
+    st.divider()
+    c1, c2 = st.columns(2)
+    if c1.button("✏️ Ubah identitas", use_container_width=True, key="menu_ident"):
+        go("Identitas")
+    if c2.button("🏡 Kembali ke Cover", use_container_width=True, key="menu_cover"):
+        go("Cover")
+
+
+# ============================================================
+# HALAMAN: CAPAIAN, PETUNJUK, PENGANTAR
+# ============================================================
+def page_capaian():
+    page_header("🎯 Capaian Pembelajaran", "Tujuan yang akan kamu capai setelah belajar.")
+    st.markdown("### Setelah menyelesaikan modul ini, kamu diharapkan mampu:")
+    for g in CAPAIAN_PEMBELAJARAN:
+        st.markdown(f"- {g}")
+    st.info("Catatan guru: rumusan di atas adalah tujuan pembelajaran modul ini, bukan kutipan dokumen resmi. "
+            "Samakan dengan CP/ATP/LKPD sekolah melalui daftar CAPAIAN_PEMBELAJARAN di app.py.")
+    if st.button("✅ Saya sudah membaca tujuan", type="primary", key="done_cp"):
+        mark_complete("Capaian Pembelajaran")
+    if "Capaian Pembelajaran" in st.session_state.completed:
+        st.success("Bagian ini sudah ditandai selesai.")
+    nav_buttons()
+
+
+def page_petunjuk():
+    page_header("🧭 Petunjuk Penggunaan LKPD", "Ikuti langkah berikut agar petualangan belajarmu lebih mudah.")
+    steps = [
+        "Buka Menu Utama, lalu pilih bagian yang ingin dipelajari.",
+        "Baca Materi Inti langkah demi langkah dan perhatikan contoh perhitungannya.",
+        "Di Latihan Soal, pilih Pilihan Ganda (10 soal) atau Esai (5 soal).",
+        "Pilih jawabanmu, lalu tekan Periksa Jawaban. Jawaban langsung diperiksa.",
+        "Baca umpan balik dan pembahasan. Jika salah, kamu boleh Coba Lagi atau Lanjut.",
+        "Pantau kemajuanmu di Progres dan Hasil Belajar, lalu pelajari lagi bagian yang disarankan.",
+        "Isi Refleksi Pembelajaran setelah selesai.",
+    ]
+    for n, desc in enumerate(steps, 1):
+        st.markdown(f'<div class="info-card" style="min-height:0"><b>{n}. {desc}</b></div>', unsafe_allow_html=True)
+    st.warning("Nilai pilihan ganda dihitung dari jawaban benar pada percobaan pertama. Percobaan ulang tetap dicatat, "
+               "tetapi tidak menambah nilai.")
+    if st.button("✅ Petunjuk sudah dipahami", type="primary", key="done_petunjuk"):
+        mark_complete("Petunjuk Penggunaan LKPD")
+    if "Petunjuk Penggunaan LKPD" in st.session_state.completed:
+        st.success("Bagian ini sudah ditandai selesai.")
+    nav_buttons()
+
+
+def page_pengantar():
+    page_header("🌻 Pengantar Materi", "Lingkaran ada di banyak tempat di sekitar kita!")
+    a, b = st.columns(2)
+    with a:
+        st.markdown("### Pernah melihat benda-benda ini?")
+        st.markdown("- 🛞 Roda sepeda\n- 🕒 Jam dinding\n- 🍽️ Piring\n- 🍕 Pizza\n- 🌳 Taman bundar")
+        st.write("Luas adalah ukuran besar daerah di dalam batas lingkaran. Kita akan belajar menghitung "
+                 "seberapa luas permukaan benda-benda tersebut.")
+    with b:
+        draw_circle(7, True, True)
+        st.caption("Garis dari pusat (O) ke tepi adalah jari-jari (r). Garis dari tepi ke tepi melalui pusat adalah diameter (d).")
+    st.markdown('<div class="formula">d = 2 × r &nbsp;&nbsp; | &nbsp;&nbsp; r = d ÷ 2</div>', unsafe_allow_html=True)
+    st.markdown("### Pertanyaan pemantik")
+    st.write("Jika sebuah pizza diketahui diameternya 20 cm, apakah kita bisa langsung memasukkan 20 ke rumus luas? Mengapa?")
+    seed("pemantik")
+    st.text_area("Tulis pendapatmu (opsional)", key="pemantik")
+    keep("pemantik")
+    if st.button("✅ Saya selesai membaca pengantar", type="primary", key="done_pengantar"):
+        mark_complete("Pengantar Materi")
+    if "Pengantar Materi" in st.session_state.completed:
+        st.success("Bagian ini sudah ditandai selesai.")
+    nav_buttons()
+
+
+# ============================================================
+# HALAMAN: MATERI INTI (bertahap)
+# ============================================================
+def page_materi():
+    page_header("🧠 Materi Inti: Luas Lingkaran", "Pelajari langkah demi langkah, lalu coba sendiri.")
+    step = st.session_state.materi_step
+    st.session_state.materi_seen.add(step)
+    n = len(MATERI_STEPS)
+    titles = [f"{i + 1}. {t}" for i, (_, t) in enumerate(MATERI_STEPS)]
+
+    def _jump():
+        st.session_state.materi_step = titles.index(st.session_state.materi_jump)
+
+    st.session_state.materi_jump = titles[step]
+    st.selectbox("Loncat ke bagian:", titles, key="materi_jump", on_change=_jump)
+    st.progress((step + 1) / n, text=f"Bagian {step + 1} dari {n} • sudah dilihat {len(st.session_state.materi_seen)}/{n}")
+    emoji, title = MATERI_STEPS[step]
+    st.markdown(f"## {emoji} {title}")
+
+    if step == 0:
+        a, b = st.columns(2)
+        with a:
+            st.markdown("**Lingkaran** adalah bangun datar yang tepinya berjarak sama dari satu titik di tengah.")
+            st.markdown("- **Titik pusat (O)**: titik di tengah lingkaran.\n"
+                        "- **Jari-jari (r)**: garis dari titik pusat ke tepi lingkaran.\n"
+                        "- **Diameter (d)**: garis dari tepi ke tepi yang melalui titik pusat.")
+        with b:
+            draw_circle(7, True, True)
+    elif step == 1:
+        st.markdown('<div class="formula">d = 2 × r &nbsp;&nbsp; | &nbsp;&nbsp; r = d ÷ 2</div>', unsafe_allow_html=True)
+        st.write("Diameter adalah dua kali jari-jari. Sebaliknya, jari-jari adalah setengah diameter.")
+        d = st.slider("Geser diameter (cm)", 2, 40, 20, step=2, key="hub_d")
+        st.success(f"Jika d = {d} cm, maka r = {d} ÷ 2 = {fmt_num(d / 2)} cm.")
+        draw_circle(d / 2, True, True)
+    elif step == 2:
+        st.markdown('<div class="formula">L = π × r × r = π × r²</div>', unsafe_allow_html=True)
+        st.markdown("- **L** = luas lingkaran\n- **π (pi)** = 22/7 atau 3,14\n- **r** = jari-jari lingkaran\n- **r²** = r × r")
+        st.warning("Ingat: L = π × r² adalah rumus luas. Rumus 2 × π × r digunakan untuk menghitung keliling.")
+    elif step == 3:
+        st.markdown("- Gunakan **π = 22/7** jika jari-jari atau diameter merupakan **kelipatan 7** (7, 14, 21, 28, ...).\n"
+                    "- Gunakan **π = 3,14** untuk ukuran yang bukan kelipatan 7.\n"
+                    "- Jika diameter diketahui, hitung **r = d ÷ 2** terlebih dahulu.")
+        st.info("Contoh: r = 14 → pakai 22/7. r = 10 → pakai 3,14.")
+    elif step == 4:
+        with st.expander("🍽️ Contoh A — Piring bundar", expanded=True):
+            st.write("Piring memiliki jari-jari 7 cm. Tentukan luas permukaannya.")
+            st.write("Diketahui: r = 7 cm. Ditanya: L.")
+            st.latex(r"L = \frac{22}{7}\times 7\times 7 = 154\text{ cm}^2")
+        with st.expander("🍕 Contoh B — Pizza"):
+            st.write("Pizza berdiameter 20 cm. Tentukan luasnya.")
+            st.write("Diketahui: d = 20 cm. Ditanya: L. Cari jari-jari: r = 20 ÷ 2 = 10 cm.")
+            st.latex(r"L = 3{,}14\times 10\times 10 = 314\text{ cm}^2")
+        with st.expander("🌳 Contoh C — Taman bundar"):
+            st.write("Taman memiliki jari-jari 14 m. Karena 14 kelipatan 7, gunakan π = 22/7.")
+            st.latex(r"L = \frac{22}{7}\times 14\times 14 = 616\text{ m}^2")
+    elif step == 5:
+        radius = st.slider("Geser untuk mengubah jari-jari (cm)", 1, 20, 7, key="materi_radius")
+        pi_choice = st.radio("Pilih nilai π", ["22/7", "3,14"], horizontal=True, key="materi_pi")
+        area = (22 / 7 if pi_choice == "22/7" else 3.14) * radius ** 2
+        left, right = st.columns(2)
+        with left:
+            draw_circle(radius, True, True)
+        with right:
+            st.markdown("### Hitung bersama")
+            st.write(f"Jari-jari: **{radius} cm**")
+            st.write("L = π × r × r")
+            st.write(f"L = {pi_choice} × {radius} × {radius}")
+            st.success(f"Luas = {fmt_num(area)} cm²")
+    else:
+        st.write("Tonton video pembelajaran berikut untuk memperkuat pemahamanmu.")
+        video_block(VIDEO_UTAMA, "video pembelajaran")
+        st.link_button("🔎 Cari video luas lingkaran di YouTube", VIDEO_PENCARIAN)
+        st.caption("Tombol pencarian membuka hasil pencarian YouTube, bukan video pilihan guru.")
+        all_seen = len(st.session_state.materi_seen) == n
+        if not all_seen:
+            st.caption("Lihat semua bagian materi dulu agar bisa menandai selesai.")
+        if st.button("✅ Materi sudah dipelajari", type="primary", key="done_materi", disabled=not all_seen):
+            mark_complete("Materi Inti")
+        if "Materi Inti" in st.session_state.completed:
+            st.success("Materi Inti sudah ditandai selesai.")
+
+    st.divider()
+    c1, c2, c3 = st.columns([1, 1, 1])
+    if step > 0 and c1.button("⬅️ Sebelumnya", key="mat_prev", use_container_width=True):
+        st.session_state.materi_step -= 1
+        st.rerun()
+    if c2.button("✏️ Ke Latihan Soal", key="mat_latihan", use_container_width=True):
+        go("Latihan Soal")
+    if step < n - 1 and c3.button("Berikutnya ➡️", key="mat_next", type="primary", use_container_width=True):
+        st.session_state.materi_step += 1
+        st.rerun()
+    nav_buttons()
+
+
+# ============================================================
+# HALAMAN: LATIHAN SOAL (hub)
+# ============================================================
+def page_latihan():
+    page_header("✏️ Latihan Soal", "Pilih jenis latihan. Soal muncul satu per satu dan langsung diperiksa.")
+    mc, es = st.session_state.mc, st.session_state.essay
+    ms, ess = mc_stats(mc), essay_stats(es)
+    a, b = st.columns(2)
+    with a:
+        st.markdown('<div class="info-card"><div style="font-size:2rem">📝</div><b>Pilihan Ganda</b><br>'
+                    '<span class="small-note">10 soal • pilih A, B, C, atau D</span></div>', unsafe_allow_html=True)
+        st.progress(ms["progress"], text=f"Diperiksa {ms['checked']}/{ms['total']} soal")
+        if mc["finished"]:
+            st.success(f"Selesai • Nilai {ms['nilai']}/100")
+            if st.button("📊 Lihat Hasil Pilihan Ganda", key="hub_mc_res", use_container_width=True):
+                go("Hasil PG")
+        else:
+            lbl = "▶️ Mulai Pilihan Ganda" if ms["checked"] == 0 else "▶️ Lanjutkan Pilihan Ganda"
+            if st.button(lbl, key="hub_mc", type="primary", use_container_width=True):
+                go("Latihan PG")
+    with b:
+        st.markdown('<div class="info-card"><div style="font-size:2rem">🖊️</div><b>Esai / Pemantapan</b><br>'
+                    '<span class="small-note">5 soal • tulis langkah dan jawabanmu</span></div>', unsafe_allow_html=True)
+        st.progress(ess["progress"], text=f"Dikirim {ess['submitted']}/{ess['total']} soal")
+        if es["finished"]:
+            st.success(f"Selesai • Nilai otomatis sementara {ess['nilai_pertama']}/100")
+            if st.button("📊 Lihat Hasil Esai", key="hub_es_res", use_container_width=True):
+                go("Hasil Esai")
+        else:
+            lbl = "▶️ Mulai Esai" if ess["submitted"] == 0 else "▶️ Lanjutkan Esai"
+            if st.button(lbl, key="hub_es", type="primary", use_container_width=True):
+                go("Latihan Esai")
+    st.checkbox("🔊 Tampilkan pemutar bunyi pada umpan balik (pilihan Pilihan Ganda)", key="audio_on")
+    st.caption("Kedua latihan punya progres sendiri. Jawabanmu tetap tersimpan selama sesi belajar ini berjalan.")
+    nav_buttons()
+
+
+# ============================================================
+# LATIHAN PILIHAN GANDA
+# ============================================================
+def mc_chips(statuses, current):
+    icon = {"none": "⚪", "benar": "✅", "ulang": "🔁", "salah": "⚠️"}
+    parts = "".join(f'<span class="chip{" cur" if i == current else ""}">{i + 1} {icon[s]}</span>'
+                    for i, s in enumerate(statuses))
+    st.markdown(f'<div class="chips">{parts}</div>', unsafe_allow_html=True)
+    st.caption("⚪ belum dikerjakan • ✅ benar (percobaan pertama) • ⚠️ perlu dipelajari lagi • 🔁 benar setelah mencoba lagi")
+
+
+def mc_feedback(q, stq):
+    att = stq["attempts"][-1]
+    ans = q["answer"]
+    if att["correct"]:
+        st.success("🎉 Hebat! Jawabanmu benar!")
+        st.markdown(f"**Mengapa benar?** {q['explanation']}")
+        if len(stq["attempts"]) > 1:
+            st.info("Soal ini benar setelah mencoba lagi. Nilai utama tetap dihitung dari percobaan pertama, "
+                    "tetapi kamu sudah berhasil memahaminya!")
+    else:
+        st.error("Belum tepat, yuk pelajari lagi!")
+        mis = q.get("miskonsepsi", {}).get(att["choice"])
+        if mis:
+            st.markdown(f"**Tentang pilihanmu ({LETTERS[att['choice']]}):** {mis}")
+        st.markdown(f"**Jawaban yang benar:** {LETTERS[ans]}. {q['options'][ans]}")
+        st.markdown(f"**Penjelasan konsep:** {q['explanation']}")
+        st.markdown("**Langkah penyelesaian:**")
+        for s in q["steps"]:
+            st.markdown(f"- {s}")
+    if st.session_state.audio_on:
+        st.audio(make_tone(att["correct"]), format="audio/wav")
+
+
+def page_mc_play():
+    mc = st.session_state.mc
+    if mc["finished"]:
+        go("Hasil PG")
+    total = len(MC_QUESTIONS)
+    i = mc["idx"]
+    q = MC_QUESTIONS[i]
+    stq = mc["q"][q["id"]]
+    page_header("📝 Latihan Pilihan Ganda", "Satu soal satu waktu. Periksa jawabanmu, baca umpan balik, lalu lanjut!")
+    s = mc_stats(mc)
+    m = st.columns(4)
+    m[0].metric("Posisi soal", f"{i + 1} dari {total}")
+    m[1].metric("Skor sementara", f"{s['nilai']}/100")
+    m[2].metric("Soal diperiksa", f"{s['checked']}/{total}")
+    m[3].metric("Benar percobaan pertama", f"{s['benar']}")
+    st.progress(s["progress"], text=f"Progres pengerjaan {round(s['progress'] * 100)}%")
+    mc_chips(s["statuses"], i)
+
+    with st.container(border=True):
+        st.markdown(f"**Soal {i + 1}.** {q['question']}")
+        if q.get("visual"):
+            v = q["visual"]
+            draw_circle(v["radius"], v["show_r"], v["show_d"])
+        key = f"mc{mc['run']}_{q['id']}_{stq['try']}"
+        if stq["locked"]:
+            st.session_state[key] = stq["attempts"][-1]["choice"]
+        else:
+            seed(key)
+        choice = st.radio("Pilih satu jawaban:", [0, 1, 2, 3], index=None, key=key, disabled=stq["locked"],
+                          format_func=lambda k: f"{LETTERS[k]}. {q['options'][k]}")
+        if not stq["locked"]:
+            keep(key)
+
+    if stq["attempts"]:
+        log = " • ".join(f"Percobaan {n}: {LETTERS[a['choice']]} {'✅' if a['correct'] else '❌'}"
+                         for n, a in enumerate(stq["attempts"], 1))
+        st.caption("Riwayat: " + log)
+
+    if not stq["locked"]:
+        if st.button("🔎 Periksa Jawaban", type="primary", key=f"chk_{key}"):
+            if choice is None:
+                st.warning("Pilih salah satu jawaban dulu ya, baru tekan Periksa Jawaban.")
+            else:
+                stq["attempts"].append({"choice": choice, "correct": choice == q["answer"], "waktu": now()})
+                stq["locked"] = True
+                st.rerun()
+    else:
+        mc_feedback(q, stq)
+        if not stq["attempts"][-1]["correct"]:
+            if st.button("🔄 Coba Lagi", key=f"retry_{key}"):
+                stq["locked"] = False
+                stq["try"] += 1
+                st.rerun()
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    if i > 0 and c1.button("⬅️ Soal Sebelumnya", key="mc_prev", use_container_width=True):
+        mc["idx"] -= 1
+        st.rerun()
+    last = i == total - 1
+    can_next = bool(stq["attempts"])
+    label = "🏁 Selesai & Lihat Hasil" if last else "➡️ Lanjut ke Soal Berikutnya"
+    if c2.button(label, key="mc_next", type="primary", use_container_width=True, disabled=not can_next):
+        if last:
+            if mc_stats(mc)["checked"] == total:
+                mc["finished"] = True
+                go("Hasil PG")
+            else:
+                st.warning("Masih ada soal yang belum diperiksa.")
+        else:
+            mc["idx"] += 1
+            st.rerun()
+    if not can_next:
+        st.caption("Tekan Periksa Jawaban dulu agar bisa lanjut.")
+    nav_buttons("↩️ Menu Latihan", "Latihan Soal")
+
+
+def page_mc_hasil():
+    mc = st.session_state.mc
+    s = mc_stats(mc)
+    page_header("🏆 Hasil Latihan Pilihan Ganda", "Lihat hasil dan materi yang perlu kamu pelajari lagi.")
+    if not mc["finished"]:
+        st.info(f"Kamu baru memeriksa {s['checked']} dari {s['total']} soal. Selesaikan dulu semua soal.")
+        if st.button("▶️ Lanjutkan Latihan", type="primary", key="res_continue"):
+            go("Latihan PG")
+        nav_buttons("↩️ Menu Latihan", "Latihan Soal")
+        return
+    if not mc["celebrated"]:
+        mc["celebrated"] = True
+        if s["nilai"] >= KKM:
+            st.balloons()
+    stu = st.session_state.student
+    st.markdown(f"**Nama:** {esc(stu['nama'])} &nbsp;|&nbsp; **Kelas:** {esc(stu['kelas'])} &nbsp;|&nbsp; "
+                f"**No. absen:** {esc(stu['absen'])}", unsafe_allow_html=True)
+    m = st.columns(4)
+    m[0].metric("Soal diselesaikan", f"{s['checked']}/{s['total']}")
+    m[1].metric("Benar (percobaan pertama)", s["benar"])
+    m[2].metric("Salah (percobaan pertama)", s["salah"])
+    m[3].metric("Nilai akhir", f"{s['nilai']}/100")
+    st.progress(1.0, text="Progres latihan 100%")
+    st.progress(s["nilai"] / 100, text=f"Penguasaan {s['nilai']}%")
+    if s["nilai"] >= KKM:
+        st.success(f"🎉 Tuntas! Nilaimu mencapai batas ketuntasan (KKM {KKM}).")
+    else:
+        st.warning(f"💪 Belum tuntas (KKM {KKM}). Pelajari lagi materi yang disarankan, lalu coba ulangi latihan.")
+    st.caption(f"Soal yang akhirnya benar (termasuk setelah mencoba lagi): {s['tuntas']} dari {s['total']}. "
+               "Nilai akhir hanya dihitung dari jawaban benar pada percobaan pertama.")
+
+    st.markdown("### Ringkasan soal yang perlu dipelajari kembali")
+    weak = [(n, q) for n, q in enumerate(MC_QUESTIONS, 1) if mc_status(mc["q"][q["id"]]) != "benar"]
+    if weak:
+        for n, q in weak:
+            st.markdown(f"- Soal {n}: {q['question'].splitlines()[0][:110]} — topik **{TOPICS[q['topic']]['label']}**")
+    else:
+        st.write("Semua soal benar pada percobaan pertama. Hebat!")
+    st.markdown("### Rekomendasi belajar untukmu")
+    groups = {}
+    for n, q in weak:
+        groups.setdefault(q["topic"], []).append(n)
+    render_recommendations([(t, f"Kamu belum tepat pada soal nomor {', '.join(map(str, ns))}.")
+                            for t, ns in groups.items()], "mcrec")
+
+    if mc["show_review"]:
+        st.markdown("### Pembahasan semua soal")
+        for n, q in enumerate(MC_QUESTIONS, 1):
+            stq = mc["q"][q["id"]]
+            with st.expander(f"Soal {n} — {'✅ benar' if mc_status(stq) == 'benar' else '⚠️ perlu dipelajari'}"):
+                st.markdown(q["question"])
+                for k, o in enumerate(q["options"]):
+                    st.markdown(f"{'**✅ ' if k == q['answer'] else ''}{LETTERS[k]}. {o}{'**' if k == q['answer'] else ''}")
+                st.caption("Jawabanmu: " + " → ".join(LETTERS[a["choice"]] for a in stq["attempts"]))
+                st.markdown(f"**Penjelasan:** {q['explanation']}")
+                for t in q["steps"]:
+                    st.markdown(f"- {t}")
+
+    st.divider()
+    b = st.columns(4)
+    if b[0].button("📖 Lihat Pembahasan" if not mc["show_review"] else "🙈 Tutup Pembahasan", key="res_review",
+                   use_container_width=True):
+        mc["show_review"] = not mc["show_review"]
+        st.rerun()
+    if b[1].button("📚 Pelajari Materi Kembali", key="res_materi", use_container_width=True):
+        go_materi(0)
+    if b[2].button("🔁 Ulangi Latihan", key="res_reset", use_container_width=True):
+        mc["confirm_reset"] = True
+        st.rerun()
+    if b[3].button("🏠 Kembali ke Menu Utama", key="res_menu", use_container_width=True):
+        go("Menu")
+    if mc["confirm_reset"]:
+        st.warning(f"Latihan akan diulang dari soal 1 dan jawaban sekarang dikosongkan. Hasil ini (nilai {s['nilai']}) "
+                   "akan dicatat di Riwayat latihan pada halaman Progres. Lanjutkan?")
+        y, n_ = st.columns(2)
+        if y.button("✅ Ya, ulangi latihan", key="res_reset_yes", type="primary", use_container_width=True):
+            st.session_state.mc_history.append({"waktu": now(), "nilai": s["nilai"], "benar": s["benar"], "salah": s["salah"]})
+            st.session_state.mc = new_mc(mc["run"] + 1)
+            go("Latihan PG")
+        if n_.button("Batal", key="res_reset_no", use_container_width=True):
+            mc["confirm_reset"] = False
+            st.rerun()
+
+
+# ============================================================
+# LATIHAN ESAI
+# ============================================================
+def essay_feedback(q, stq):
+    sub = stq["subs"][-1]
+    st.markdown(f"#### Hasil pemeriksaan: **{sub['score']}/100**")
+    st.progress(sub["score"] / 100)
+    for ch in sub["checks"]:
+        icon = "✅" if ch["frac"] == 1 else ("🟡" if ch["frac"] > 0 else "🔎")
+        st.markdown(f"{icon} **{ch['label']}** ({round(ch['got'])}/{ch['points']}) — {ch['hint']}")
+    st.caption("Pemeriksaan otomatis hanya mengecek angka dan kata/simbol penting. Cara penulisan lain tetap mungkin benar, "
+               "jadi guru tetap dapat memeriksa penalaranmu.")
+    if q.get("needs_teacher"):
+        st.info("📝 Soal ini meminta penjelasan. Alasanmu sebaiknya dibaca dan dinilai guru.")
+    with st.expander("📖 Pembahasan dan jawaban yang diharapkan", expanded=True):
+        for t in q["solution"]:
+            st.markdown(f"- {t}")
+        st.markdown(f"**Jawaban yang diharapkan:** {q['answer_text']}")
+
+
+def page_essay_play():
+    es = st.session_state.essay
+    if es["finished"]:
+        go("Hasil Esai")
+    total = len(ESSAY_QUESTIONS)
+    i = es["idx"]
+    q = ESSAY_QUESTIONS[i]
+    stq = es["q"][q["id"]]
+    page_header("🖊️ Latihan Esai / Pemantapan", "Tulis langkah dan jawabanmu dengan lengkap.")
+    s = essay_stats(es)
+    m = st.columns(3)
+    m[0].metric("Posisi soal", f"{i + 1} dari {total}")
+    m[1].metric("Soal dikirim", f"{s['submitted']}/{total}")
+    m[2].metric("Skor soal ini", f"{s['per'][i]['first']}/100" if s["per"][i]["first"] is not None else "—")
+    st.progress(s["progress"], text=f"Progres esai {round(s['progress'] * 100)}%")
+
+    with st.container(border=True):
+        st.markdown(f"**Soal {i + 1}.** {q['question']}")
+        st.caption(q["hint"])
+        base = f"es{es['run']}_{q['id']}_{stq['try']}"
+        ks, kf, kc = base + "_s", base + "_f", base + "_c"
+        if stq["locked"]:
+            last = stq["subs"][-1]
+            st.session_state[ks], st.session_state[kf], st.session_state[kc] = last["steps"], last["final"], last["concl"]
+        else:
+            seed(ks), seed(kf), seed(kc)
+        steps = st.text_area("✍️ Tulis diketahui, ditanya, rumus, dan langkah perhitunganmu", key=ks, height=200,
+                             disabled=stq["locked"], placeholder="Diketahui: ...\nDitanya: ...\nPenyelesaian: ...")
+        final = st.text_input("Jawaban akhir (angka saja)", key=kf, disabled=stq["locked"], placeholder="Contoh: 616")
+        concl = st.text_input("Kesimpulan (tulis dengan satuan)", key=kc, disabled=stq["locked"],
+                              placeholder="Jadi, luas ... adalah ...")
+        if not stq["locked"]:
+            keep(ks), keep(kf), keep(kc)
+
+    if len(stq["subs"]) > 1:
+        st.caption("Riwayat skor: " + " → ".join(f"{x['score']}" for x in stq["subs"])
+                   + " (nilai utama memakai pengiriman pertama)")
+
+    if not stq["locked"]:
+        if st.button("🔎 Periksa Jawaban", type="primary", key=f"es_chk_{base}"):
+            if not steps.strip():
+                st.warning("Tulis dulu langkah penyelesaianmu.")
+            elif not final.strip():
+                st.warning("Isi jawaban akhirmu dulu.")
+            elif parse_number(final) is None:
+                st.warning("Jawaban akhir harus berupa angka, misalnya 616.")
+            else:
+                res = grade_essay(q, steps, final, concl)
+                stq["subs"].append({"steps": steps, "final": final, "concl": concl, "waktu": now(), **res})
+                stq["locked"] = True
+                st.rerun()
+    else:
+        essay_feedback(q, stq)
+        if st.button("✏️ Perbaiki Jawaban", key=f"es_retry_{base}"):
+            prev = stq["subs"][-1]
+            stq["try"] += 1
+            nb = f"es{es['run']}_{q['id']}_{stq['try']}"
+            st.session_state.saved[nb + "_s"] = prev["steps"]
+            st.session_state.saved[nb + "_f"] = prev["final"]
+            st.session_state.saved[nb + "_c"] = prev["concl"]
+            stq["locked"] = False
+            st.rerun()
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    if i > 0 and c1.button("⬅️ Soal Sebelumnya", key="es_prev", use_container_width=True):
+        es["idx"] -= 1
+        st.rerun()
+    last_q = i == total - 1
+    can_next = bool(stq["subs"])
+    label = "🏁 Selesai & Lihat Hasil" if last_q else "➡️ Lanjut ke Soal Berikutnya"
+    if c2.button(label, key="es_next", type="primary", use_container_width=True, disabled=not can_next):
+        if last_q:
+            if essay_stats(es)["submitted"] == total:
+                es["finished"] = True
+                go("Hasil Esai")
+            else:
+                st.warning("Masih ada soal esai yang belum dikirim.")
+        else:
+            es["idx"] += 1
+            st.rerun()
+    if not can_next:
+        st.caption("Tekan Periksa Jawaban dulu agar bisa lanjut.")
+    nav_buttons("↩️ Menu Latihan", "Latihan Soal")
+
+
+def page_essay_hasil():
+    es = st.session_state.essay
+    s = essay_stats(es)
+    page_header("🏆 Hasil Latihan Esai", "Ringkasan penilaian otomatis berbasis rubrik.")
+    if not es["finished"]:
+        st.info(f"Kamu baru mengirim {s['submitted']} dari {s['total']} soal esai.")
+        if st.button("▶️ Lanjutkan Esai", type="primary", key="esr_continue"):
+            go("Latihan Esai")
+        nav_buttons("↩️ Menu Latihan", "Latihan Soal")
+        return
+    if not es["celebrated"]:
+        es["celebrated"] = True
+        if s["nilai_pertama"] >= KKM:
+            st.balloons()
+    stu = st.session_state.student
+    st.markdown(f"**Nama:** {esc(stu['nama'])} &nbsp;|&nbsp; **Kelas:** {esc(stu['kelas'])} &nbsp;|&nbsp; "
+                f"**No. absen:** {esc(stu['absen'])}", unsafe_allow_html=True)
+    ts = st.session_state.teacher_scores
+    m = st.columns(4)
+    m[0].metric("Soal selesai", f"{s['submitted']}/{s['total']}")
+    m[1].metric("Nilai otomatis (pengiriman pertama)", f"{s['nilai_pertama']}/100")
+    m[2].metric("Nilai terbaik setelah perbaikan", f"{s['nilai_terbaik']}/100")
+    if ts:
+        vals = [ts.get(q["id"], s["per"][k]["first"]) for k, q in enumerate(ESSAY_QUESTIONS)]
+        m[3].metric("Nilai setelah pemeriksaan guru", f"{round(sum(vals) / len(vals))}/100")
+    else:
+        m[3].metric("Pemeriksaan guru", "Belum")
+    st.progress(1.0, text="Progres esai 100%")
+    st.info("Nilai otomatis adalah **skor sementara** dari pengecekan angka dan kata kunci pada rubrik. "
+            "Aplikasi ini tidak menilai makna kalimat secara otomatis, sehingga guru perlu memeriksa penalaran dan penulisan siswa.")
+
+    st.markdown("### Rincian per soal")
+    for n, q in enumerate(ESSAY_QUESTIONS, 1):
+        p = s["per"][n - 1]
+        extra = f" • skor guru {ts[q['id']]}" if q["id"] in ts else ""
+        st.markdown(f"- Soal {n} ({TOPICS[q['topic']]['label']}): pengiriman pertama **{p['first']}/100**, "
+                    f"terbaik {p['best']}/100, dikirim {p['n']}×{extra}")
+
+    st.markdown("### Rekomendasi belajar untukmu")
+    groups = {}
+    for n, q in enumerate(ESSAY_QUESTIONS, 1):
+        for ch in es["q"][q["id"]]["subs"][0]["checks"]:
+            if ch["frac"] < 1:
+                groups.setdefault(ch["topic"], []).append(f"soal {n}: {ch['label'].lower()}")
+    render_recommendations([(t, "Perlu diperbaiki pada " + "; ".join(v[:2]) + ".") for t, v in groups.items()], "esrec")
+
+    if es["show_review"]:
+        st.markdown("### Pembahasan semua soal")
+        for n, q in enumerate(ESSAY_QUESTIONS, 1):
+            with st.expander(f"Soal {n}"):
+                st.markdown(q["question"])
+                for t in q["solution"]:
+                    st.markdown(f"- {t}")
+                st.markdown(f"**Jawaban yang diharapkan:** {q['answer_text']}")
+
+    with st.expander("🔒 Panel Guru (opsional): skor manual per soal"):
+        pin = st.text_input("PIN guru", type="password", key="guru_pin")
+        if pin == GURU_PIN:
+            st.caption("Skor manual menggantikan skor otomatis pada ringkasan (hanya selama sesi ini).")
+            for n, q in enumerate(ESSAY_QUESTIONS, 1):
+                default = ts.get(q["id"], s["per"][n - 1]["first"])
+                v = st.number_input(f"Skor guru soal {n} (0-100)", 0, 100, int(default), key=f"ts_{q['id']}")
+                if v != s["per"][n - 1]["first"] or q["id"] in ts:
+                    ts[q["id"]] = int(v)
+        elif pin:
+            st.error("PIN salah.")
+
+    st.divider()
+    b = st.columns(4)
+    if b[0].button("📖 Lihat Pembahasan" if not es["show_review"] else "🙈 Tutup Pembahasan", key="esr_review",
+                   use_container_width=True):
+        es["show_review"] = not es["show_review"]
+        st.rerun()
+    if b[1].button("📚 Pelajari Materi Kembali", key="esr_materi", use_container_width=True):
+        go_materi(2)
+    if b[2].button("🔁 Ulangi Esai", key="esr_reset", use_container_width=True):
+        es["confirm_reset"] = True
+        st.rerun()
+    if b[3].button("🏠 Kembali ke Menu Utama", key="esr_menu", use_container_width=True):
+        go("Menu")
+    if es["confirm_reset"]:
+        st.warning(f"Esai akan diulang dari soal 1 dan jawaban sekarang dikosongkan. Hasil ini (nilai otomatis "
+                   f"{s['nilai_pertama']}) akan dicatat di Riwayat latihan. Lanjutkan?")
+        y, n_ = st.columns(2)
+        if y.button("✅ Ya, ulangi esai", key="esr_reset_yes", type="primary", use_container_width=True):
+            st.session_state.essay_history.append({"waktu": now(), "nilai": s["nilai_pertama"], "terbaik": s["nilai_terbaik"]})
+            st.session_state.teacher_scores = {}
+            st.session_state.essay = new_essay(es["run"] + 1)
+            go("Latihan Esai")
+        if n_.button("Batal", key="esr_reset_no", use_container_width=True):
+            es["confirm_reset"] = False
+            st.rerun()
+
+
+# ============================================================
+# HALAMAN: PROGRES DAN HASIL BELAJAR
+# ============================================================
+def page_progres():
+    page_header("📊 Progres dan Hasil Belajar", "Lihat sejauh mana kamu sudah belajar.")
+    mc, es = st.session_state.mc, st.session_state.essay
+    ms, ess = mc_stats(mc), essay_stats(es)
+    stu = st.session_state.student
+    st.markdown(f"**Nama:** {esc(stu['nama'])} &nbsp;|&nbsp; **Kelas:** {esc(stu['kelas'])} &nbsp;|&nbsp; "
+                f"**No. absen:** {esc(stu['absen'])}", unsafe_allow_html=True)
+    pct = overall_progress()
+    st.metric("Progres keseluruhan", f"{round(pct * 100)}%")
+    st.progress(pct)
+
+    st.markdown("### Status setiap bagian")
+    for _, title in MENU:
+        if title in ("Latihan Soal", "Progres dan Hasil Belajar"):
+            continue
+        done = title in st.session_state.completed
+        opened = title in st.session_state.visited
+        st.markdown(f"- {'✅ Selesai' if done else ('📖 Dibuka, belum ditandai selesai' if opened else '⚪ Belum dibuka')} — **{title}**")
+    seen = len(st.session_state.materi_seen)
+    st.caption(f"Bagian Materi Inti yang sudah dilihat: {seen}/{len(MATERI_STEPS)}")
+
+    st.markdown("### Latihan")
+    a, b = st.columns(2)
+    with a:
+        st.markdown("**📝 Pilihan Ganda**")
+        st.progress(ms["progress"], text=f"Diperiksa {ms['checked']}/{ms['total']} soal")
+        if mc["finished"]:
+            st.write(f"Nilai: **{ms['nilai']}/100** • benar pertama {ms['benar']} • salah pertama {ms['salah']}")
+        elif ms["checked"]:
+            st.write(f"Skor sementara: **{ms['nilai']}/100** (belum selesai)")
+        else:
+            st.write("Belum dikerjakan.")
+    with b:
+        st.markdown("**🖊️ Esai**")
+        st.progress(ess["progress"], text=f"Dikirim {ess['submitted']}/{ess['total']} soal")
+        if ess["submitted"]:
+            st.write(f"Nilai otomatis sementara: **{ess['nilai_pertama']}/100** (perlu pemeriksaan guru)")
+        else:
+            st.write("Belum dikerjakan.")
+
+    mastery = topic_mastery(mc, es)
+    st.markdown("### Ringkasan penguasaan materi")
+    if mastery:
+        for t, v in sorted(mastery.items(), key=lambda x: x[1]):
+            st.progress(v / 100, text=f"{TOPICS[t]['label']}: {v}% — {'Menguasai ✅' if v >= KKM else 'Perlu latihan ⚠️'}")
+        st.caption("Dihitung dari soal pilihan ganda (percobaan pertama) dan kriteria rubrik esai (pengiriman pertama).")
+    else:
+        st.info("Kerjakan latihan untuk melihat penguasaan materi.")
+
+    st.markdown("### Bagian yang disarankan untuk dipelajari ulang")
+    weak = sorted(((t, v) for t, v in mastery.items() if v < KKM), key=lambda x: x[1])
+    render_recommendations([(t, f"Penguasaanmu saat ini {v}%.") for t, v in weak], "prog")
+
+    hist = st.session_state.mc_history, st.session_state.essay_history
+    if hist[0] or hist[1]:
+        st.markdown("### Riwayat latihan sebelumnya")
+        for h in hist[0]:
+            st.write(f"📝 Pilihan Ganda ({h['waktu']}): nilai {h['nilai']}, benar pertama {h['benar']}, salah pertama {h['salah']}")
+        for h in hist[1]:
+            st.write(f"🖊️ Esai ({h['waktu']}): nilai otomatis {h['nilai']}, terbaik {h['terbaik']}")
+    st.caption("Data disimpan sementara selama sesi aplikasi. Jika halaman ditutup atau dimuat ulang, data akan hilang.")
+    nav_buttons()
+
+
+# ============================================================
+# HALAMAN: REFLEKSI
+# ============================================================
+def page_refleksi():
+    page_header("💭 Refleksi Pembelajaran", "Pikirkan apa yang sudah kamu pahami dan bagian yang masih menantang.")
+    r = st.session_state.reflection
+    U = ["😊 Sudah paham", "🙂 Cukup paham", "🤔 Masih perlu latihan"]
+    H = ["Memahami jari-jari dan diameter", "Memilih nilai π", "Menggunakan rumus luas",
+         "Mengubah diameter menjadi jari-jari", "Menyelesaikan soal cerita",
+         "Menulis langkah esai", "Tidak ada, semuanya cukup mudah"]
+    B = ["Sangat membantu", "Cukup membantu", "Belum membantu"]
+    with st.form("reflection_form"):
+        understanding = st.radio("1. Seberapa paham kamu tentang luas lingkaran?", U,
+                                 index=U.index(r["understanding"]) if r.get("understanding") in U else None)
+        hard_part = st.selectbox("2. Bagian mana yang paling menantang?", H,
+                                 index=H.index(r["hard_part"]) if r.get("hard_part") in H else None,
+                                 placeholder="Pilih salah satu")
+        useful = st.radio("3. Apakah gambar dan contoh sehari-hari membantumu?", B,
+                          index=B.index(r["useful"]) if r.get("useful") in B else None)
+        next_step = st.text_area("4. Apa yang ingin kamu pelajari atau latih lagi?", value=r.get("next_step", ""))
+        sub = st.form_submit_button("💾 Simpan Refleksi", type="primary")
+    if sub:
+        st.session_state.reflection = {"understanding": understanding, "hard_part": hard_part,
+                                       "useful": useful, "next_step": next_step}
+        if understanding and hard_part and useful:
+            mark_complete("Refleksi Pembelajaran")
+            st.success("Refleksi tersimpan selama sesi ini. Terima kasih sudah belajar! 🌼")
+        else:
+            st.warning("Refleksi disimpan, tetapi lengkapi pertanyaan 1–3 agar bagian ini ditandai selesai.")
+    r = st.session_state.reflection
+    if r:
+        st.markdown("### Ringkasan refleksimu")
+        st.write(f"**Pemahaman:** {r.get('understanding') or 'Belum diisi'}")
+        st.write(f"**Bagian menantang:** {r.get('hard_part') or 'Belum diisi'}")
+        st.write(f"**Manfaat gambar:** {r.get('useful') or 'Belum diisi'}")
+        if r.get("next_step"):
+            st.write(f"**Rencana berikutnya:** {r['next_step']}")
+    nav_buttons()
+
+
+# ============================================================
+# ROUTER
+# ============================================================
+PAGES = {
+    "Cover": page_cover, "Identitas": page_identitas, "Menu": page_menu,
+    "Capaian Pembelajaran": page_capaian, "Petunjuk Penggunaan LKPD": page_petunjuk,
+    "Pengantar Materi": page_pengantar, "Materi Inti": page_materi,
+    "Latihan Soal": page_latihan, "Latihan PG": page_mc_play, "Hasil PG": page_mc_hasil,
+    "Latihan Esai": page_essay_play, "Hasil Esai": page_essay_hasil,
+    "Progres dan Hasil Belajar": page_progres, "Refleksi Pembelajaran": page_refleksi,
+}
+
+_screen = st.session_state.screen
+if _screen not in PAGES:
+    _screen = "Cover"
+if _screen not in ("Cover", "Identitas") and not st.session_state.student:
+    go("Identitas")
+st.session_state.visited.add(SECTION_OF.get(_screen, _screen))
+PAGES[_screen]()
+
+st.divider()
+st.caption(f"Modul pembelajaran interaktif • Luas Lingkaran • Kelas VI SD/MI • {NAMA_SEKOLAH}")
+st.caption("Data identitas, jawaban, progres, dan refleksi disimpan sementara selama sesi aplikasi berjalan.")
