@@ -613,7 +613,7 @@ AUTO_BG = {"Cover": "senja", "Identitas": "mentega", "Menu": "langit", "Capaian 
 ROTASI_BG = ["laut", "mentega", "permen", "langit", "pelangi", "senja", "mentega"]
 
 # ---------- MESIN SUARA (WebAudio di browser; tanpa file audio, tanpa internet) ----------
-AUDIO_Name = r"""
+AUDIO_LIB = r"""
 (function(){
 if(window.__lk){return;}
 var AC=window.AudioContext||window.webkitAudioContext;
