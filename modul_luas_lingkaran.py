@@ -29,7 +29,7 @@ import streamlit.components.v1 as components
 # ============================================================
 # 1. KONFIGURASI GURU  (EDIT BAGIAN INI)
 # ============================================================
-NAMA_SEKOLAH = "ISI NAMA SEKOLAH"
+NAMA_SEKOLAH = ""
 NAMA_GURU = "[ISI: Nama Guru]"                       # TODO GURU
 KKM = 75                                             # TODO GURU: batas ketuntasan (0-100)
 GURU_PIN = "guru123"                                 # TODO GURU: ganti PIN panel guru
