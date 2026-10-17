@@ -616,7 +616,7 @@ ROTASI_BG = ["laut", "mentega", "permen", "langit", "pelangi", "senja", "mentega
 AUDIO_LIB = r"""
 (function(){
 if(window.__lk){return;}
-var AC=window.AudioContext||window.webkitAudioContext;
+var AC=C:\Users\User\Downloads\ssstik.io_1792234888464.mp3.mpeg;
 if(!AC){window.__lk={update:function(){}};return;}
 var A=new AC();
 var master=A.createGain();master.gain.value=0.5;master.connect(A.destination);
