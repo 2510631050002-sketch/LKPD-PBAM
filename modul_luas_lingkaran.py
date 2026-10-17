@@ -613,7 +613,7 @@ AUTO_BG = {"Cover": "senja", "Identitas": "mentega", "Menu": "langit", "Capaian 
 ROTASI_BG = ["laut", "mentega", "permen", "langit", "pelangi", "senja", "mentega"]
 
 # ---------- MESIN SUARA (WebAudio di browser; tanpa file audio, tanpa internet) ----------
-AUDIO_LIB = r"""
+Music_File = ""C:\Users\User\Downloads\ssstik.io_1792234888464.mp3.mpeg"
 (function(){
 if(window.__lk){return;}
 var AC=window.AudioContext||window.webkitAudioContext;
